@@ -1,0 +1,26 @@
+{
+  "name": "aquapro-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "lucide-react": "^0.468.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "recharts": "^2.15.4",
+    "typescript": "~5.8.2",
+    "vite": "latest",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
+  }
+}
