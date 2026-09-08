@@ -277,12 +277,11 @@ const cargarRegistros = (): RegistroCalidadAgua[] => {
         temperatura: numero(r.temperatura),
         salinidad:
           r.salinidad === null ||
-          r.salinidad === undefined ||
-          r.salinidad === ''
+          r.salinidad === undefined
             ? null
             : numero(r.salinidad),
         ph:
-          r.ph === null || r.ph === undefined || r.ph === ''
+          r.ph === null || r.ph === undefined 
             ? null
             : numero(r.ph),
         observacion: String(r.observacion ?? ''),

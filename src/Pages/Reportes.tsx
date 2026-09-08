@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Activity,
+  
   BarChart3,
-  CalendarDays,
+  
   Droplets,
   Gauge,
   Package,
-  Scale,
+  
   Sprout,
   Waves,
 } from 'lucide-react';

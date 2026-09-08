@@ -26,35 +26,7 @@ type RegistroAlimentacion = {
   observacion: string;
 };
 
-const registrosIniciales: RegistroAlimentacion[] = [
-  {
-    id: 1,
-    piscinaId: 1,
-    ciclo: 4,
-    fecha: '2026-07-01',
-    tipoBalanceado: 'Preinicio',
-    cantidadKg: 850,
-    observacion: '',
-  },
-  {
-    id: 2,
-    piscinaId: 1,
-    ciclo: 4,
-    fecha: '2026-07-02',
-    tipoBalanceado: 'Preinicio',
-    cantidadKg: 920,
-    observacion: '',
-  },
-  {
-    id: 3,
-    piscinaId: 1,
-    ciclo: 4,
-    fecha: '2026-07-03',
-    tipoBalanceado: 'Engorde',
-    cantidadKg: 880,
-    observacion: 'Consumo normal.',
-  },
-];
+
 
 const tiposBalanceado = [
   'Preinicio',

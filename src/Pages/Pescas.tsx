@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import {
-  Fish,
+  
   Plus,
   Search,
   Trash2,
@@ -150,18 +150,11 @@ export default function Pescas() {
           };
         })
         .filter(
-          (
-            piscina
-          ): piscina is {
-            id: number;
-            nombre: string;
-            cicloId: number;
-            cicloActual: number;
-            estado: string;
-          } => piscina !== null
-        ),
-    [piscinas]
-  );
+  (piscina): piscina is NonNullable<typeof piscina> =>
+    piscina !== null
+),
+[piscinas]
+);
 
   const [registros, setRegistros] = useState<RegistroPesca[]>(() => {
     try {
