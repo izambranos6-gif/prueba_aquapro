@@ -17,8 +17,18 @@ export type Siembra = {
   id: number;
   fecha: string;
   cantidadSembrada: number;
+
+  // Se conserva nullable para poder leer registros antiguos.
+  // Las nuevas siembras exigen un peso mayor que cero.
   pesoInicial: number | null;
+
+  // Compatibilidad con versiones anteriores.
   procedencia: string;
+
+  // Nuevos campos.
+  nauplios?: string[];
+  laboratorios?: string[];
+
   observacion: string;
 
   piscinaId: number;
@@ -28,44 +38,24 @@ export type Siembra = {
 
 export type Ciclo = {
   id: number;
-
   piscinaId: number;
-
   numero: number;
-
   estado: EstadoCiclo;
-
   fechaInicio: string;
-
   fechaCierre: string | null;
-
   siembra: Siembra | null;
 };
 
 export type Piscina = {
   id: number;
-
   nombre: string;
-
   zona: string;
-
   hectareas: number;
-
   estado: EstadoPiscina;
 
   /*
-    Este número solamente se usa cuando la piscina
+    Este número se usa solamente cuando la piscina
     todavía nunca ha tenido un ciclo registrado.
-
-    Ejemplo:
-
-    Nueva piscina IS110
-    cicloInicial = 4
-
-    Primera siembra -> Ciclo 4
-
-    Después:
-    Ciclo 4 cerrado -> nueva siembra -> Ciclo 5
   */
   cicloInicial: number;
 };
@@ -91,6 +81,8 @@ export type NuevaSiembraInput = {
   cantidadSembrada: number;
   pesoInicial: number | null;
   procedencia: string;
+  nauplios?: string[];
+  laboratorios?: string[];
   observacion: string;
 };
 
@@ -99,6 +91,8 @@ export type EditarSiembraInput = {
   cantidadSembrada: number;
   pesoInicial: number | null;
   procedencia: string;
+  nauplios?: string[];
+  laboratorios?: string[];
   observacion: string;
 };
 
@@ -124,7 +118,6 @@ const piscinasIniciales: Piscina[] = [
     estado: 'Activa',
     cicloInicial: 4,
   },
-
   {
     id: 2,
     nombre: 'IS051',
@@ -133,7 +126,6 @@ const piscinasIniciales: Piscina[] = [
     estado: 'Disponible',
     cicloInicial: 2,
   },
-
   {
     id: 3,
     nombre: 'IS063',
@@ -142,7 +134,6 @@ const piscinasIniciales: Piscina[] = [
     estado: 'Disponible',
     cicloInicial: 3,
   },
-
   {
     id: 4,
     nombre: 'IS029',
@@ -151,7 +142,6 @@ const piscinasIniciales: Piscina[] = [
     estado: 'Disponible',
     cicloInicial: 5,
   },
-
   {
     id: 5,
     nombre: 'IS074',
@@ -160,7 +150,6 @@ const piscinasIniciales: Piscina[] = [
     estado: 'Descanso',
     cicloInicial: 1,
   },
-
   {
     id: 6,
     nombre: 'IS034',
@@ -169,7 +158,6 @@ const piscinasIniciales: Piscina[] = [
     estado: 'Disponible',
     cicloInicial: 2,
   },
-
   {
     id: 7,
     nombre: 'IS081',
@@ -178,7 +166,6 @@ const piscinasIniciales: Piscina[] = [
     estado: 'Mantenimiento',
     cicloInicial: 3,
   },
-
   {
     id: 8,
     nombre: 'IS098',
@@ -189,42 +176,25 @@ const piscinasIniciales: Piscina[] = [
   },
 ];
 
-/*
-  Dejamos IS045 sembrada como ejemplo para conservar
-  la prueba que ya tenías en tu pantalla.
-*/
-
 const ciclosIniciales: Ciclo[] = [
   {
     id: 1001,
-
     piscinaId: 1,
-
     numero: 4,
-
     estado: 'Activo',
-
     fechaInicio: '2026-06-12',
-
     fechaCierre: null,
-
     siembra: {
       id: 101,
-
       fecha: '2026-06-12',
-
       cantidadSembrada: 2500000,
-
       pesoInicial: 0.015,
-
       procedencia: 'Laboratorio',
-
+      nauplios: [],
+      laboratorios: ['Laboratorio'],
       observacion: 'Siembra inicial de prueba.',
-
       piscinaId: 1,
-
       cicloId: 1001,
-
       ciclo: 4,
     },
   },
@@ -235,6 +205,48 @@ const ciclosIniciales: Ciclo[] = [
 ========================================================= */
 
 const STORAGE_KEY = 'aquapro-store-v1';
+
+function normalizarLista(valor: unknown): string[] {
+  if (!Array.isArray(valor)) return [];
+
+  return valor
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+}
+
+function normalizarSiembra(siembra: Siembra | null): Siembra | null {
+  if (!siembra) return null;
+
+  const nauplios = normalizarLista(siembra.nauplios);
+  let laboratorios = normalizarLista(siembra.laboratorios);
+
+  // Migración suave de registros antiguos que solo tenían procedencia.
+  if (laboratorios.length === 0 && siembra.procedencia?.trim()) {
+    laboratorios = [siembra.procedencia.trim()];
+  }
+
+  return {
+    ...siembra,
+    nauplios,
+    laboratorios,
+    procedencia:
+      laboratorios.length > 0
+        ? laboratorios.join(', ')
+        : siembra.procedencia ?? '',
+  };
+}
+
+function normalizarEstado(datos: AquaProState): AquaProState {
+  return {
+    piscinas: Array.isArray(datos.piscinas) ? datos.piscinas : [],
+    ciclos: Array.isArray(datos.ciclos)
+      ? datos.ciclos.map((ciclo) => ({
+          ...ciclo,
+          siembra: normalizarSiembra(ciclo.siembra),
+        }))
+      : [],
+  };
+}
 
 function cargarEstadoInicial(): AquaProState {
   if (typeof window === 'undefined') {
@@ -263,7 +275,7 @@ function cargarEstadoInicial(): AquaProState {
       throw new Error('Datos locales inválidos');
     }
 
-    return parsed;
+    return normalizarEstado(parsed);
   } catch {
     return {
       piscinas: piscinasIniciales,
@@ -298,7 +310,6 @@ function guardarEnLocalStorage() {
 
 function emitirCambios() {
   guardarEnLocalStorage();
-
   listeners.forEach((listener) => listener());
 }
 
@@ -306,7 +317,6 @@ function actualizarEstado(
   updater: (actual: AquaProState) => AquaProState
 ) {
   state = updater(state);
-
   emitirCambios();
 }
 
@@ -342,29 +352,19 @@ function crearId() {
   return Date.now() + Math.floor(Math.random() * 10000);
 }
 
-export function obtenerPiscina(
-  piscinaId: number
-) {
+export function obtenerPiscina(piscinaId: number) {
   return state.piscinas.find(
     (piscina) => piscina.id === piscinaId
   );
 }
 
-export function obtenerCiclosPiscina(
-  piscinaId: number
-) {
+export function obtenerCiclosPiscina(piscinaId: number) {
   return state.ciclos
-    .filter(
-      (ciclo) => ciclo.piscinaId === piscinaId
-    )
-    .sort(
-      (a, b) => b.numero - a.numero
-    );
+    .filter((ciclo) => ciclo.piscinaId === piscinaId)
+    .sort((a, b) => b.numero - a.numero);
 }
 
-export function obtenerCicloActivo(
-  piscinaId: number
-) {
+export function obtenerCicloActivo(piscinaId: number) {
   return state.ciclos.find(
     (ciclo) =>
       ciclo.piscinaId === piscinaId &&
@@ -372,52 +372,28 @@ export function obtenerCicloActivo(
   );
 }
 
-export function obtenerSiembraActual(
-  piscinaId: number
-) {
-  return (
-    obtenerCicloActivo(piscinaId)?.siembra ??
-    null
-  );
+export function obtenerSiembraActual(piscinaId: number) {
+  return obtenerCicloActivo(piscinaId)?.siembra ?? null;
 }
-
-/* =========================================================
-   CICLO ACTUAL
-========================================================= */
 
 export function obtenerNumeroCicloActual(
   piscinaId: number
 ): number | null {
   const ciclo = obtenerCicloActivo(piscinaId);
-
   return ciclo?.numero ?? null;
 }
-
-/* =========================================================
-   ÚLTIMO CICLO REGISTRADO
-========================================================= */
 
 export function obtenerUltimoNumeroCiclo(
   piscinaId: number
 ): number | null {
-  const ciclos = obtenerCiclosPiscina(
-    piscinaId
-  );
+  const ciclos = obtenerCiclosPiscina(piscinaId);
 
   if (ciclos.length === 0) {
     return null;
   }
 
-  return Math.max(
-    ...ciclos.map(
-      (ciclo) => ciclo.numero
-    )
-  );
+  return Math.max(...ciclos.map((ciclo) => ciclo.numero));
 }
-
-/* =========================================================
-   CALCULAR PRÓXIMO CICLO
-========================================================= */
 
 export function obtenerProximoNumeroCiclo(
   piscinaId: number
@@ -425,28 +401,15 @@ export function obtenerProximoNumeroCiclo(
   const piscina = obtenerPiscina(piscinaId);
 
   if (!piscina) {
-    throw new Error(
-      'La piscina no existe.'
-    );
+    throw new Error('La piscina no existe.');
   }
 
   const ultimoCiclo =
     obtenerUltimoNumeroCiclo(piscinaId);
 
-  /*
-    Si nunca ha tenido ciclos,
-    usamos el ciclo inicial elegido
-    al registrar la piscina.
-  */
-
   if (ultimoCiclo === null) {
     return piscina.cicloInicial;
   }
-
-  /*
-    Después del primer ciclo,
-    AquaPro incrementa automáticamente.
-  */
 
   return ultimoCiclo + 1;
 }
@@ -455,43 +418,25 @@ export function obtenerProximoNumeroCiclo(
    CREAR PISCINA
 ========================================================= */
 
-export function crearPiscina(
-  datos: NuevaPiscinaInput
-) {
-  const nombre =
-    datos.nombre.trim().toUpperCase();
+export function crearPiscina(datos: NuevaPiscinaInput) {
+  const nombre = datos.nombre.trim().toUpperCase();
 
   if (!nombre) {
-    throw new Error(
-      'Ingresa el nombre de la piscina.'
-    );
+    throw new Error('Ingresa el nombre de la piscina.');
   }
 
-  if (
-    !datos.hectareas ||
-    datos.hectareas <= 0
-  ) {
-    throw new Error(
-      'Ingresa un área válida.'
-    );
+  if (!datos.hectareas || datos.hectareas <= 0) {
+    throw new Error('Ingresa un área válida.');
   }
 
-  if (
-    !datos.cicloInicial ||
-    datos.cicloInicial < 1
-  ) {
-    throw new Error(
-      'Ingresa un ciclo inicial válido.'
-    );
+  if (!datos.cicloInicial || datos.cicloInicial < 1) {
+    throw new Error('Ingresa un ciclo inicial válido.');
   }
 
-  const yaExiste =
-    state.piscinas.some(
-      (piscina) =>
-        piscina.nombre
-          .trim()
-          .toUpperCase() === nombre
-    );
+  const yaExiste = state.piscinas.some(
+    (piscina) =>
+      piscina.nombre.trim().toUpperCase() === nombre
+  );
 
   if (yaExiste) {
     throw new Error(
@@ -501,34 +446,19 @@ export function crearPiscina(
 
   const nuevaPiscina: Piscina = {
     id: crearId(),
-
     nombre,
-
     zona: datos.zona,
-
     hectareas: datos.hectareas,
-
-    /*
-      Una piscina recién creada todavía
-      no está sembrada.
-    */
-
     estado:
       datos.estado === 'Mantenimiento'
         ? 'Mantenimiento'
         : 'Disponible',
-
-    cicloInicial:
-      datos.cicloInicial,
+    cicloInicial: datos.cicloInicial,
   };
 
   actualizarEstado((actual) => ({
     ...actual,
-
-    piscinas: [
-      ...actual.piscinas,
-      nuevaPiscina,
-    ],
+    piscinas: [...actual.piscinas, nuevaPiscina],
   }));
 
   return nuevaPiscina;
@@ -542,37 +472,28 @@ export function editarPiscina(
   piscinaId: number,
   datos: EditarPiscinaInput
 ) {
-  const piscina =
-    obtenerPiscina(piscinaId);
+  const piscina = obtenerPiscina(piscinaId);
 
   if (!piscina) {
-    throw new Error(
-      'La piscina no existe.'
-    );
+    throw new Error('La piscina no existe.');
   }
 
   if (
     datos.hectareas !== undefined &&
     datos.hectareas <= 0
   ) {
-    throw new Error(
-      'El área debe ser mayor que cero.'
-    );
+    throw new Error('El área debe ser mayor que cero.');
   }
 
   if (datos.nombre !== undefined) {
     const nuevoNombre =
       datos.nombre.trim().toUpperCase();
 
-    const duplicada =
-      state.piscinas.some(
-        (p) =>
-          p.id !== piscinaId &&
-          p.nombre
-            .trim()
-            .toUpperCase() ===
-            nuevoNombre
-      );
+    const duplicada = state.piscinas.some(
+      (p) =>
+        p.id !== piscinaId &&
+        p.nombre.trim().toUpperCase() === nuevoNombre
+    );
 
     if (duplicada) {
       throw new Error(
@@ -583,44 +504,27 @@ export function editarPiscina(
 
   actualizarEstado((actual) => ({
     ...actual,
-
-    piscinas: actual.piscinas.map(
-      (p) =>
-        p.id === piscinaId
-          ? {
-              ...p,
-
-              ...(datos.nombre !== undefined
-                ? {
-                    nombre:
-                      datos.nombre
-                        .trim()
-                        .toUpperCase(),
-                  }
-                : {}),
-
-              ...(datos.zona !== undefined
-                ? {
-                    zona: datos.zona,
-                  }
-                : {}),
-
-              ...(datos.hectareas !==
-              undefined
-                ? {
-                    hectareas:
-                      datos.hectareas,
-                  }
-                : {}),
-
-              ...(datos.estado !== undefined
-                ? {
-                    estado:
-                      datos.estado,
-                  }
-                : {}),
-            }
-          : p
+    piscinas: actual.piscinas.map((p) =>
+      p.id === piscinaId
+        ? {
+            ...p,
+            ...(datos.nombre !== undefined
+              ? {
+                  nombre:
+                    datos.nombre.trim().toUpperCase(),
+                }
+              : {}),
+            ...(datos.zona !== undefined
+              ? { zona: datos.zona }
+              : {}),
+            ...(datos.hectareas !== undefined
+              ? { hectareas: datos.hectareas }
+              : {}),
+            ...(datos.estado !== undefined
+              ? { estado: datos.estado }
+              : {}),
+          }
+        : p
     ),
   }));
 }
@@ -629,26 +533,13 @@ export function editarPiscina(
    ELIMINAR PISCINA
 ========================================================= */
 
-export function eliminarPiscina(
-  piscinaId: number
-) {
-  /*
-    Si eliminamos una piscina,
-    también eliminamos sus ciclos.
-
-    En la interfaz pondremos una
-    confirmación fuerte antes de hacerlo.
-  */
-
+export function eliminarPiscina(piscinaId: number) {
   actualizarEstado((actual) => ({
     piscinas: actual.piscinas.filter(
-      (piscina) =>
-        piscina.id !== piscinaId
+      (piscina) => piscina.id !== piscinaId
     ),
-
     ciclos: actual.ciclos.filter(
-      (ciclo) =>
-        ciclo.piscinaId !== piscinaId
+      (ciclo) => ciclo.piscinaId !== piscinaId
     ),
   }));
 }
@@ -660,19 +551,13 @@ export function eliminarPiscina(
 export function registrarNuevaSiembra(
   datos: NuevaSiembraInput
 ) {
-  const piscina =
-    obtenerPiscina(datos.piscinaId);
+  const piscina = obtenerPiscina(datos.piscinaId);
 
   if (!piscina) {
     throw new Error(
       'La piscina seleccionada no existe.'
     );
   }
-
-  /*
-    Una piscina no puede tener
-    dos ciclos activos al mismo tiempo.
-  */
 
   const cicloActivo =
     obtenerCicloActivo(datos.piscinaId);
@@ -684,9 +569,7 @@ export function registrarNuevaSiembra(
   }
 
   if (!datos.fecha) {
-    throw new Error(
-      'Ingresa la fecha de siembra.'
-    );
+    throw new Error('Ingresa la fecha de siembra.');
   }
 
   if (
@@ -698,72 +581,64 @@ export function registrarNuevaSiembra(
     );
   }
 
-  const numeroCiclo =
-    obtenerProximoNumeroCiclo(
-      datos.piscinaId
+  if (
+    datos.pesoInicial === null ||
+    datos.pesoInicial === undefined ||
+    !Number.isFinite(datos.pesoInicial) ||
+    datos.pesoInicial <= 0
+  ) {
+    throw new Error(
+      'Ingresa un peso inicial válido.'
     );
+  }
+
+  const nauplios = normalizarLista(datos.nauplios);
+  const laboratorios =
+    normalizarLista(datos.laboratorios);
+
+  const numeroCiclo =
+    obtenerProximoNumeroCiclo(datos.piscinaId);
 
   const cicloId = crearId();
-
   const siembraId = crearId();
 
   const nuevaSiembra: Siembra = {
     id: siembraId,
-
     fecha: datos.fecha,
-
-    cantidadSembrada:
-      datos.cantidadSembrada,
-
-    pesoInicial:
-      datos.pesoInicial,
-
+    cantidadSembrada: datos.cantidadSembrada,
+    pesoInicial: datos.pesoInicial,
+    nauplios,
+    laboratorios,
     procedencia:
-      datos.procedencia.trim(),
-
-    observacion:
-      datos.observacion.trim(),
-
-    piscinaId:
-      datos.piscinaId,
-
+      laboratorios.length > 0
+        ? laboratorios.join(', ')
+        : datos.procedencia.trim(),
+    observacion: datos.observacion.trim(),
+    piscinaId: datos.piscinaId,
     cicloId,
-
     ciclo: numeroCiclo,
   };
 
   const nuevoCiclo: Ciclo = {
     id: cicloId,
-
-    piscinaId:
-      datos.piscinaId,
-
+    piscinaId: datos.piscinaId,
     numero: numeroCiclo,
-
     estado: 'Activo',
-
     fechaInicio: datos.fecha,
-
     fechaCierre: null,
-
     siembra: nuevaSiembra,
   };
 
   actualizarEstado((actual) => ({
-    piscinas: actual.piscinas.map(
-      (p) =>
-        p.id === datos.piscinaId
-          ? {
-              ...p,
-              estado: 'Activa',
-            }
-          : p
+    piscinas: actual.piscinas.map((p) =>
+      p.id === datos.piscinaId
+        ? {
+            ...p,
+            estado: 'Activa',
+          }
+        : p
     ),
-
-    ciclos: [
-      ...actual.ciclos,
-      nuevoCiclo,
-    ],
+    ciclos: [...actual.ciclos, nuevoCiclo],
   }));
 
   return nuevoCiclo;
@@ -793,9 +668,7 @@ export function actualizarSiembraActual(
   }
 
   if (!datos.fecha) {
-    throw new Error(
-      'Ingresa la fecha de siembra.'
-    );
+    throw new Error('Ingresa la fecha de siembra.');
   }
 
   if (
@@ -807,40 +680,47 @@ export function actualizarSiembraActual(
     );
   }
 
+  if (
+    datos.pesoInicial === null ||
+    datos.pesoInicial === undefined ||
+    !Number.isFinite(datos.pesoInicial) ||
+    datos.pesoInicial <= 0
+  ) {
+    throw new Error(
+      'Ingresa un peso inicial válido.'
+    );
+  }
+
+  const nauplios = normalizarLista(datos.nauplios);
+  const laboratorios =
+    normalizarLista(datos.laboratorios);
+
   actualizarEstado((actual) => ({
     ...actual,
-
-    ciclos: actual.ciclos.map(
-      (ciclo) =>
-        ciclo.id === cicloActivo.id
-          ? {
-              ...ciclo,
-
-              fechaInicio:
-                datos.fecha,
-
-              siembra: ciclo.siembra
-                ? {
-                    ...ciclo.siembra,
-
-                    fecha:
-                      datos.fecha,
-
-                    cantidadSembrada:
-                      datos.cantidadSembrada,
-
-                    pesoInicial:
-                      datos.pesoInicial,
-
-                    procedencia:
-                      datos.procedencia.trim(),
-
-                    observacion:
-                      datos.observacion.trim(),
-                  }
-                : null,
-            }
-          : ciclo
+    ciclos: actual.ciclos.map((ciclo) =>
+      ciclo.id === cicloActivo.id
+        ? {
+            ...ciclo,
+            fechaInicio: datos.fecha,
+            siembra: ciclo.siembra
+              ? {
+                  ...ciclo.siembra,
+                  fecha: datos.fecha,
+                  cantidadSembrada:
+                    datos.cantidadSembrada,
+                  pesoInicial: datos.pesoInicial,
+                  nauplios,
+                  laboratorios,
+                  procedencia:
+                    laboratorios.length > 0
+                      ? laboratorios.join(', ')
+                      : datos.procedencia.trim(),
+                  observacion:
+                    datos.observacion.trim(),
+                }
+              : null,
+          }
+        : ciclo
     ),
   }));
 }
@@ -861,53 +741,36 @@ export function eliminarSiembraActual(
     );
   }
 
-  /*
-    Como este ciclo nació con la siembra,
-    si la siembra se registró por error,
-    eliminamos ese ciclo activo completo.
-
-    El número NO queda consumido.
-  */
-
   actualizarEstado((actual) => ({
-    piscinas: actual.piscinas.map(
-      (piscina) =>
-        piscina.id === piscinaId
-          ? {
-              ...piscina,
-
-              estado:
-                piscina.estado ===
-                'Mantenimiento'
-                  ? 'Mantenimiento'
-                  : 'Disponible',
-            }
-          : piscina
+    piscinas: actual.piscinas.map((piscina) =>
+      piscina.id === piscinaId
+        ? {
+            ...piscina,
+            estado:
+              piscina.estado === 'Mantenimiento'
+                ? 'Mantenimiento'
+                : 'Disponible',
+          }
+        : piscina
     ),
-
     ciclos: actual.ciclos.filter(
-      (ciclo) =>
-        ciclo.id !== cicloActivo.id
+      (ciclo) => ciclo.id !== cicloActivo.id
     ),
   }));
 }
 
 /* =========================================================
    CERRAR CICLO
-   ESTA FUNCIÓN LA USAREMOS DESDE PESCAS
 ========================================================= */
 
 export function cerrarCicloPorLiquidacion(
   piscinaId: number,
   fechaCierre?: string
 ) {
-  const piscina =
-    obtenerPiscina(piscinaId);
+  const piscina = obtenerPiscina(piscinaId);
 
   if (!piscina) {
-    throw new Error(
-      'La piscina no existe.'
-    );
+    throw new Error('La piscina no existe.');
   }
 
   const cicloActivo =
@@ -921,52 +784,33 @@ export function cerrarCicloPorLiquidacion(
 
   const fecha =
     fechaCierre ??
-    new Date()
-      .toISOString()
-      .slice(0, 10);
+    new Date().toISOString().slice(0, 10);
 
   actualizarEstado((actual) => ({
-    piscinas: actual.piscinas.map(
-      (p) =>
-        p.id === piscinaId
-          ? {
-              ...p,
-
-              /*
-                La piscina sigue existiendo,
-                pero ya no tiene una siembra activa.
-              */
-
-              estado: 'Descanso',
-            }
-          : p
+    piscinas: actual.piscinas.map((p) =>
+      p.id === piscinaId
+        ? {
+            ...p,
+            estado: 'Descanso',
+          }
+        : p
     ),
-
-    ciclos: actual.ciclos.map(
-      (ciclo) =>
-        ciclo.id === cicloActivo.id
-          ? {
-              ...ciclo,
-
-              estado: 'Cerrado',
-
-              fechaCierre: fecha,
-            }
-          : ciclo
+    ciclos: actual.ciclos.map((ciclo) =>
+      ciclo.id === cicloActivo.id
+        ? {
+            ...ciclo,
+            estado: 'Cerrado',
+            fechaCierre: fecha,
+          }
+        : ciclo
     ),
   }));
 
   return {
     piscinaId,
-
-    piscina:
-      piscina.nombre,
-
-    cicloCerrado:
-      cicloActivo.numero,
-
-    proximoCiclo:
-      cicloActivo.numero + 1,
+    piscina: piscina.nombre,
+    cicloCerrado: cicloActivo.numero,
+    proximoCiclo: cicloActivo.numero + 1,
   };
 }
 
@@ -977,33 +821,25 @@ export function cerrarCicloPorLiquidacion(
 export function puedeRegistrarNuevaSiembra(
   piscinaId: number
 ) {
-  const piscina =
-    obtenerPiscina(piscinaId);
+  const piscina = obtenerPiscina(piscinaId);
 
   if (!piscina) {
     return false;
   }
 
-  if (
-    piscina.estado === 'Mantenimiento'
-  ) {
+  if (piscina.estado === 'Mantenimiento') {
     return false;
   }
 
-  return !obtenerCicloActivo(
-    piscinaId
-  );
+  return !obtenerCicloActivo(piscinaId);
 }
 
 /* =========================================================
    INFORMACIÓN COMPLETA PARA PISCINAS
 ========================================================= */
 
-export function obtenerDatosPiscina(
-  piscinaId: number
-) {
-  const piscina =
-    obtenerPiscina(piscinaId);
+export function obtenerDatosPiscina(piscinaId: number) {
+  const piscina = obtenerPiscina(piscinaId);
 
   if (!piscina) {
     return null;
@@ -1017,28 +853,14 @@ export function obtenerDatosPiscina(
 
   return {
     ...piscina,
-
-    cicloActual:
-      cicloActivo?.numero ?? null,
-
-    cicloActivo:
-      cicloActivo ?? null,
-
-    siembraActual:
-      cicloActivo?.siembra ?? null,
-
-    proximoCiclo:
-      cicloActivo
-        ? cicloActivo.numero
-        : obtenerProximoNumeroCiclo(
-            piscinaId
-          ),
-
-    totalCiclos:
-      ciclos.length,
-
-    historialCiclos:
-      ciclos,
+    cicloActual: cicloActivo?.numero ?? null,
+    cicloActivo: cicloActivo ?? null,
+    siembraActual: cicloActivo?.siembra ?? null,
+    proximoCiclo: cicloActivo
+      ? cicloActivo.numero
+      : obtenerProximoNumeroCiclo(piscinaId),
+    totalCiclos: ciclos.length,
+    historialCiclos: ciclos,
   };
 }
 
@@ -1049,8 +871,7 @@ export function obtenerDatosPiscina(
 export function obtenerHistorialPiscina(
   piscinaId: number
 ) {
-  const piscina =
-    obtenerPiscina(piscinaId);
+  const piscina = obtenerPiscina(piscinaId);
 
   if (!piscina) {
     return null;
@@ -1058,41 +879,33 @@ export function obtenerHistorialPiscina(
 
   return {
     piscina,
-
-    ciclos:
-      obtenerCiclosPiscina(
-        piscinaId
-      ),
+    ciclos: obtenerCiclosPiscina(piscinaId),
   };
 }
 
 /* =========================================================
    REINICIAR DATOS DE PRUEBA
-   ÚTIL MIENTRAS DESARROLLAMOS
 ========================================================= */
 
 export function reiniciarAquaPro() {
   state = {
-    piscinas:
-      piscinasIniciales.map(
-        (piscina) => ({
-          ...piscina,
-        })
-      ),
-
-    ciclos:
-      ciclosIniciales.map(
-        (ciclo) => ({
-          ...ciclo,
-
-          siembra:
-            ciclo.siembra
-              ? {
-                  ...ciclo.siembra,
-                }
-              : null,
-        })
-      ),
+    piscinas: piscinasIniciales.map((piscina) => ({
+      ...piscina,
+    })),
+    ciclos: ciclosIniciales.map((ciclo) => ({
+      ...ciclo,
+      siembra: ciclo.siembra
+        ? {
+            ...ciclo.siembra,
+            nauplios: [
+              ...(ciclo.siembra.nauplios ?? []),
+            ],
+            laboratorios: [
+              ...(ciclo.siembra.laboratorios ?? []),
+            ],
+          }
+        : null,
+    })),
   };
 
   emitirCambios();

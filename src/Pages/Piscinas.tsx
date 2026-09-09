@@ -32,6 +32,8 @@ const formularioSiembraInicial = {
   cantidadSembrada: '',
   pesoInicial: '',
   procedencia: '',
+  nauplios: [] as string[],
+  laboratorios: [] as string[],
   observacion: '',
 };
 
@@ -82,6 +84,9 @@ export default function Piscinas() {
   const [formularioSiembra, setFormularioSiembra] = useState(
     formularioSiembraInicial
   );
+
+  const [nuevoNauplio, setNuevoNauplio] = useState('');
+  const [nuevoLaboratorio, setNuevoLaboratorio] = useState('');
 
   /* =======================================================
      PISCINA SELECCIONADA
@@ -303,6 +308,15 @@ export default function Piscinas() {
 
         procedencia: siembra.procedencia,
 
+        nauplios: siembra.nauplios ?? [],
+
+        laboratorios:
+          siembra.laboratorios && siembra.laboratorios.length > 0
+            ? siembra.laboratorios
+            : siembra.procedencia
+            ? [siembra.procedencia]
+            : [],
+
         observacion: siembra.observacion,
       });
 
@@ -318,6 +332,8 @@ export default function Piscinas() {
       setEditandoSiembra(true);
     }
 
+    setNuevoNauplio('');
+    setNuevoLaboratorio('');
     setMostrarSiembra(true);
   }
 
@@ -333,6 +349,79 @@ export default function Piscinas() {
     setEditandoSiembra(false);
 
     setFormularioSiembra(formularioSiembraInicial);
+
+    setNuevoNauplio('');
+    setNuevoLaboratorio('');
+  }
+
+  /* =======================================================
+     AGREGAR / QUITAR NAUPLIOS Y LABORATORIOS
+  ======================================================= */
+
+  function agregarNauplio() {
+    const valor = nuevoNauplio.trim();
+
+    if (!valor) return;
+
+    if (
+      formularioSiembra.nauplios.some(
+        (item) => item.toLowerCase() === valor.toLowerCase()
+      )
+    ) {
+      alert('⚠️ Ese nauplio ya fue agregado.');
+      return;
+    }
+
+    setFormularioSiembra({
+      ...formularioSiembra,
+      nauplios: [...formularioSiembra.nauplios, valor],
+    });
+
+    setNuevoNauplio('');
+  }
+
+  function quitarNauplio(indice: number) {
+    setFormularioSiembra({
+      ...formularioSiembra,
+      nauplios: formularioSiembra.nauplios.filter(
+        (_, posicion) => posicion !== indice
+      ),
+    });
+  }
+
+  function agregarLaboratorio() {
+    const valor = nuevoLaboratorio.trim();
+
+    if (!valor) return;
+
+    if (
+      formularioSiembra.laboratorios.some(
+        (item) => item.toLowerCase() === valor.toLowerCase()
+      )
+    ) {
+      alert('⚠️ Ese laboratorio ya fue agregado.');
+      return;
+    }
+
+    setFormularioSiembra({
+      ...formularioSiembra,
+      laboratorios: [...formularioSiembra.laboratorios, valor],
+      procedencia: [...formularioSiembra.laboratorios, valor].join(', '),
+    });
+
+    setNuevoLaboratorio('');
+  }
+
+  function quitarLaboratorio(indice: number) {
+    const nuevos = formularioSiembra.laboratorios.filter(
+      (_, posicion) => posicion !== indice
+    );
+
+    setFormularioSiembra({
+      ...formularioSiembra,
+      laboratorios: nuevos,
+      procedencia: nuevos.join(', '),
+    });
   }
 
   /* =======================================================
@@ -345,16 +434,36 @@ export default function Piscinas() {
     if (!piscinaSiembra) return;
 
     try {
+      if (!formularioSiembra.fecha) {
+        throw new Error('Ingresa la fecha de siembra.');
+      }
+
+      if (
+        !formularioSiembra.cantidadSembrada ||
+        Number(formularioSiembra.cantidadSembrada) <= 0
+      ) {
+        throw new Error('Ingresa una cantidad sembrada válida.');
+      }
+
+      if (
+        !formularioSiembra.pesoInicial ||
+        Number(formularioSiembra.pesoInicial) <= 0
+      ) {
+        throw new Error('Ingresa un peso inicial válido.');
+      }
+
       const datos = {
         fecha: formularioSiembra.fecha,
 
         cantidadSembrada: Number(formularioSiembra.cantidadSembrada),
 
-        pesoInicial: formularioSiembra.pesoInicial
-          ? Number(formularioSiembra.pesoInicial)
-          : null,
+        pesoInicial: Number(formularioSiembra.pesoInicial),
 
-        procedencia: formularioSiembra.procedencia,
+        nauplios: formularioSiembra.nauplios,
+
+        laboratorios: formularioSiembra.laboratorios,
+
+        procedencia: formularioSiembra.laboratorios.join(', '),
 
         observacion: formularioSiembra.observacion,
       };
@@ -1157,8 +1266,21 @@ export default function Piscinas() {
                   />
 
                   <InfoSiembra
-                    titulo="🧪 Procedencia"
-                    valor={siembraActual.procedencia || 'No registrada'}
+                    titulo="🧫 Nauplios"
+                    valor={
+                      (siembraActual.nauplios ?? []).length > 0
+                        ? (siembraActual.nauplios ?? []).join(' • ')
+                        : 'No registrados'
+                    }
+                  />
+
+                  <InfoSiembra
+                    titulo="🧪 Laboratorios"
+                    valor={
+                      (siembraActual.laboratorios ?? []).length > 0
+                        ? (siembraActual.laboratorios ?? []).join(' • ')
+                        : siembraActual.procedencia || 'No registrados'
+                    }
                   />
                 </div>
 
@@ -1265,6 +1387,7 @@ export default function Piscinas() {
                     Fecha de siembra
                     <input
                       type="date"
+                      required
                       value={formularioSiembra.fecha}
                       onChange={(e) =>
                         setFormularioSiembra({
@@ -1282,6 +1405,7 @@ export default function Piscinas() {
                       type="number"
                       min="1"
                       step="1"
+                      required
                       value={formularioSiembra.cantidadSembrada}
                       onChange={(e) =>
                         setFormularioSiembra({
@@ -1295,11 +1419,12 @@ export default function Piscinas() {
                   </label>
 
                   <label>
-                    Peso inicial (g)
+                    ⚖️ Peso inicial (g) *
                     <input
                       type="number"
-                      min="0"
+                      min="0.001"
                       step="0.001"
+                      required
                       value={formularioSiembra.pesoInicial}
                       onChange={(e) =>
                         setFormularioSiembra({
@@ -1308,24 +1433,38 @@ export default function Piscinas() {
                           pesoInicial: e.target.value,
                         })
                       }
-                      placeholder="Opcional"
+                      placeholder="Ej. 0.015"
                     />
                   </label>
+                </div>
 
-                  <label>
-                    Procedencia / Laboratorio
-                    <input
-                      value={formularioSiembra.procedencia}
-                      onChange={(e) =>
-                        setFormularioSiembra({
-                          ...formularioSiembra,
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: '14px',
+                    marginTop: '16px',
+                  }}
+                >
+                  <ListaMultiple
+                    titulo="🧫 Nauplios"
+                    placeholder="Ej. Nauplio N5..."
+                    valor={nuevoNauplio}
+                    onChange={setNuevoNauplio}
+                    onAgregar={agregarNauplio}
+                    items={formularioSiembra.nauplios}
+                    onQuitar={quitarNauplio}
+                  />
 
-                          procedencia: e.target.value,
-                        })
-                      }
-                      placeholder="Ej. Laboratorio..."
-                    />
-                  </label>
+                  <ListaMultiple
+                    titulo="🧪 Laboratorios"
+                    placeholder="Ej. Laboratorio..."
+                    valor={nuevoLaboratorio}
+                    onChange={setNuevoLaboratorio}
+                    onAgregar={agregarLaboratorio}
+                    items={formularioSiembra.laboratorios}
+                    onQuitar={quitarLaboratorio}
+                  />
                 </div>
 
                 {/* CÁLCULO DENSIDAD */}
@@ -1475,6 +1614,139 @@ function SummaryCard({
 
         {detail && <small>{detail}</small>}
       </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   LISTA MÚLTIPLE
+========================================================= */
+
+function ListaMultiple({
+  titulo,
+  placeholder,
+  valor,
+  onChange,
+  onAgregar,
+  items,
+  onQuitar,
+}: {
+  titulo: string;
+  placeholder: string;
+  valor: string;
+  onChange: (valor: string) => void;
+  onAgregar: () => void;
+  items: string[];
+  onQuitar: (indice: number) => void;
+}) {
+  return (
+    <div
+      style={{
+        padding: '14px',
+        border: '1px solid #dfe9e7',
+        borderRadius: '12px',
+        background: '#f8fbfa',
+      }}
+    >
+      <strong
+        style={{
+          display: 'block',
+          marginBottom: '8px',
+          color: '#294b45',
+        }}
+      >
+        {titulo}
+      </strong>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: '8px',
+        }}
+      >
+        <input
+          value={valor}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onAgregar();
+            }
+          }}
+          placeholder={placeholder}
+          style={{
+            flex: 1,
+            minWidth: 0,
+          }}
+        />
+
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={onAgregar}
+          style={{
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ＋ Agregar
+        </button>
+      </div>
+
+      {items.length > 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '8px',
+            marginTop: '10px',
+          }}
+        >
+          {items.map((item, indice) => (
+            <span
+              key={`${item}-${indice}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                padding: '7px 10px',
+                borderRadius: '999px',
+                background: '#e8f5f2',
+                color: '#315f57',
+                fontSize: '13px',
+                border: '1px solid #d2ebe5',
+              }}
+            >
+              {item}
+
+              <button
+                type="button"
+                onClick={() => onQuitar(indice)}
+                title={`Quitar ${item}`}
+                style={{
+                  border: 0,
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  padding: 0,
+                  color: '#6f7f7b',
+                  fontWeight: 700,
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <small
+          style={{
+            display: 'block',
+            marginTop: '9px',
+            color: '#80908c',
+          }}
+        >
+          Puedes agregar uno o varios.
+        </small>
+      )}
     </div>
   );
 }
