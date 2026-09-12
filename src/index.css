@@ -1654,3 +1654,27 @@ button {
   object-fit: contain;
   display: block;
 }
+
+.menu-shrimp-icon {
+  width: 45px;
+  height: 45px;
+
+  background-color: currentColor;
+
+  -webkit-mask-image: url('/camaron_menu.png');
+  mask-image: url('/camaron_menu.png');
+
+  -webkit-mask-size: contain;
+  mask-size: contain;
+
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+
+  -webkit-mask-position: center;
+  mask-position: center;
+
+  display: block;
+
+  margin-left: -10px;
+  margin-right: -10px;
+}

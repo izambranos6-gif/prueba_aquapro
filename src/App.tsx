@@ -160,9 +160,9 @@ function App() {
             onClick={() => setPaginaActual('piscinas')}
           />
 
-          <NavItem
+         <NavItem
             active={paginaActual === 'pescas'}
-            icon={<Fish />}
+            icon={<span className="menu-shrimp-icon" />}
             label="Pescas"
             onClick={() => setPaginaActual('pescas')}
           />
