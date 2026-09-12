@@ -13,6 +13,9 @@ export type EstadoPiscina =
 
 export type EstadoCiclo = 'Activo' | 'Cerrado';
 
+export type TipoPiscina = 'Engorde' | 'Precría';
+export type TipoOrigenSiembra = 'Directa' | 'Precría' | 'Madre/Hija';
+
 export type Siembra = {
   id: number;
   fecha: string;
@@ -29,11 +32,34 @@ export type Siembra = {
   nauplios?: string[];
   laboratorios?: string[];
 
+  // Trazabilidad de la siembra.
+  tipoOrigen?: TipoOrigenSiembra;
+  piscinaOrigenId?: number | null;
+  piscinaOrigenNombre?: string | null;
+  cicloOrigen?: number | null;
+
+  // Copia histórica del origen para conservar la trazabilidad
+  // aunque la piscina de origen cambie de ciclo posteriormente.
+  fechaSiembraOrigen?: string | null;
+  cantidadSembradaOrigen?: number | null;
+  pesoInicialOrigen?: number | null;
+  naupliosOrigen?: string[];
+  laboratoriosOrigen?: string[];
+
   observacion: string;
 
   piscinaId: number;
   cicloId: number;
   ciclo: number;
+};
+
+export type LiquidacionPrecria = {
+  fecha: string;
+  cantidadInicial: number;
+  totalTransferido: number;
+  diferencia: number;
+  supervivencia: number;
+  observacion: string;
 };
 
 export type Ciclo = {
@@ -44,6 +70,7 @@ export type Ciclo = {
   fechaInicio: string;
   fechaCierre: string | null;
   siembra: Siembra | null;
+  liquidacionPrecria?: LiquidacionPrecria | null;
 };
 
 export type Piscina = {
@@ -52,6 +79,10 @@ export type Piscina = {
   zona: string;
   hectareas: number;
   estado: EstadoPiscina;
+
+  // Tipo productivo de la piscina.
+  // Opcional para mantener compatibilidad con piscinas ya guardadas.
+  tipo?: TipoPiscina;
 
   /*
     Este número se usa solamente cuando la piscina
@@ -65,6 +96,7 @@ export type NuevaPiscinaInput = {
   zona: string;
   hectareas: number;
   estado?: EstadoPiscina;
+  tipo?: TipoPiscina;
   cicloInicial: number;
 };
 
@@ -73,6 +105,7 @@ export type EditarPiscinaInput = {
   zona?: string;
   hectareas?: number;
   estado?: EstadoPiscina;
+  tipo?: TipoPiscina;
 };
 
 export type NuevaSiembraInput = {
@@ -83,6 +116,15 @@ export type NuevaSiembraInput = {
   procedencia: string;
   nauplios?: string[];
   laboratorios?: string[];
+  tipoOrigen?: TipoOrigenSiembra;
+  piscinaOrigenId?: number | null;
+  piscinaOrigenNombre?: string | null;
+  cicloOrigen?: number | null;
+  fechaSiembraOrigen?: string | null;
+  cantidadSembradaOrigen?: number | null;
+  pesoInicialOrigen?: number | null;
+  naupliosOrigen?: string[];
+  laboratoriosOrigen?: string[];
   observacion: string;
 };
 
@@ -93,6 +135,15 @@ export type EditarSiembraInput = {
   procedencia: string;
   nauplios?: string[];
   laboratorios?: string[];
+  tipoOrigen?: TipoOrigenSiembra;
+  piscinaOrigenId?: number | null;
+  piscinaOrigenNombre?: string | null;
+  cicloOrigen?: number | null;
+  fechaSiembraOrigen?: string | null;
+  cantidadSembradaOrigen?: number | null;
+  pesoInicialOrigen?: number | null;
+  naupliosOrigen?: string[];
+  laboratoriosOrigen?: string[];
   observacion: string;
 };
 
@@ -233,12 +284,26 @@ function normalizarSiembra(siembra: Siembra | null): Siembra | null {
       laboratorios.length > 0
         ? laboratorios.join(', ')
         : siembra.procedencia ?? '',
+    tipoOrigen: siembra.tipoOrigen ?? 'Directa',
+    piscinaOrigenId: siembra.piscinaOrigenId ?? null,
+    piscinaOrigenNombre: siembra.piscinaOrigenNombre ?? null,
+    cicloOrigen: siembra.cicloOrigen ?? null,
+    fechaSiembraOrigen: siembra.fechaSiembraOrigen ?? null,
+    cantidadSembradaOrigen: siembra.cantidadSembradaOrigen ?? null,
+    pesoInicialOrigen: siembra.pesoInicialOrigen ?? null,
+    naupliosOrigen: normalizarLista(siembra.naupliosOrigen),
+    laboratoriosOrigen: normalizarLista(siembra.laboratoriosOrigen),
   };
 }
 
 function normalizarEstado(datos: AquaProState): AquaProState {
   return {
-    piscinas: Array.isArray(datos.piscinas) ? datos.piscinas : [],
+    piscinas: Array.isArray(datos.piscinas)
+      ? datos.piscinas.map((piscina) => ({
+          ...piscina,
+          tipo: piscina.tipo ?? 'Engorde',
+        }))
+      : [],
     ciclos: Array.isArray(datos.ciclos)
       ? datos.ciclos.map((ciclo) => ({
           ...ciclo,
@@ -251,7 +316,10 @@ function normalizarEstado(datos: AquaProState): AquaProState {
 function cargarEstadoInicial(): AquaProState {
   if (typeof window === 'undefined') {
     return {
-      piscinas: piscinasIniciales,
+      piscinas: piscinasIniciales.map((piscina) => ({
+        ...piscina,
+        tipo: piscina.tipo ?? 'Engorde',
+      })),
       ciclos: ciclosIniciales,
     };
   }
@@ -278,7 +346,10 @@ function cargarEstadoInicial(): AquaProState {
     return normalizarEstado(parsed);
   } catch {
     return {
-      piscinas: piscinasIniciales,
+      piscinas: piscinasIniciales.map((piscina) => ({
+        ...piscina,
+        tipo: piscina.tipo ?? 'Engorde',
+      })),
       ciclos: ciclosIniciales,
     };
   }
@@ -453,6 +524,7 @@ export function crearPiscina(datos: NuevaPiscinaInput) {
       datos.estado === 'Mantenimiento'
         ? 'Mantenimiento'
         : 'Disponible',
+    tipo: datos.tipo ?? 'Engorde',
     cicloInicial: datos.cicloInicial,
   };
 
@@ -523,6 +595,9 @@ export function editarPiscina(
             ...(datos.estado !== undefined
               ? { estado: datos.estado }
               : {}),
+            ...(datos.tipo !== undefined
+              ? { tipo: datos.tipo }
+              : {}),
           }
         : p
     ),
@@ -592,6 +667,52 @@ export function registrarNuevaSiembra(
     );
   }
 
+  const tipoOrigen: TipoOrigenSiembra =
+    piscina.tipo === 'Precría'
+      ? 'Directa'
+      : datos.tipoOrigen ?? 'Directa';
+
+  if (
+    tipoOrigen !== 'Directa' &&
+    (!datos.piscinaOrigenId || datos.piscinaOrigenId === datos.piscinaId)
+  ) {
+    throw new Error('Selecciona una piscina de origen válida.');
+  }
+
+  let cicloOrigen: number | null = null;
+
+  if (tipoOrigen !== 'Directa' && datos.piscinaOrigenId) {
+    const piscinaOrigen = obtenerPiscina(datos.piscinaOrigenId);
+
+    if (!piscinaOrigen) {
+      throw new Error('La piscina de origen no existe.');
+    }
+
+    if (
+      tipoOrigen === 'Precría' &&
+      (piscinaOrigen.tipo ?? 'Engorde') !== 'Precría'
+    ) {
+      throw new Error('El origen seleccionado debe ser una precría.');
+    }
+
+    if (
+      tipoOrigen === 'Madre/Hija' &&
+      (piscinaOrigen.tipo ?? 'Engorde') !== 'Engorde'
+    ) {
+      throw new Error('La piscina madre debe ser una piscina de engorde.');
+    }
+
+    const cicloActivoOrigen = obtenerCicloActivo(piscinaOrigen.id);
+
+    if (!cicloActivoOrigen?.siembra) {
+      throw new Error(
+        `La piscina ${piscinaOrigen.nombre} no tiene una siembra activa.`
+      );
+    }
+
+    cicloOrigen = cicloActivoOrigen.numero;
+  }
+
   const nauplios = normalizarLista(datos.nauplios);
   const laboratorios =
     normalizarLista(datos.laboratorios);
@@ -613,6 +734,22 @@ export function registrarNuevaSiembra(
       laboratorios.length > 0
         ? laboratorios.join(', ')
         : datos.procedencia.trim(),
+    tipoOrigen,
+    piscinaOrigenId:
+      tipoOrigen === 'Directa' ? null : datos.piscinaOrigenId ?? null,
+    piscinaOrigenNombre:
+      tipoOrigen === 'Directa' ? null : datos.piscinaOrigenNombre ?? null,
+    cicloOrigen,
+    fechaSiembraOrigen:
+      tipoOrigen === 'Directa' ? null : datos.fechaSiembraOrigen ?? null,
+    cantidadSembradaOrigen:
+      tipoOrigen === 'Directa' ? null : datos.cantidadSembradaOrigen ?? null,
+    pesoInicialOrigen:
+      tipoOrigen === 'Directa' ? null : datos.pesoInicialOrigen ?? null,
+    naupliosOrigen:
+      tipoOrigen === 'Directa' ? [] : normalizarLista(datos.naupliosOrigen),
+    laboratoriosOrigen:
+      tipoOrigen === 'Directa' ? [] : normalizarLista(datos.laboratoriosOrigen),
     observacion: datos.observacion.trim(),
     piscinaId: datos.piscinaId,
     cicloId,
@@ -691,6 +828,54 @@ export function actualizarSiembraActual(
     );
   }
 
+  const piscinaActual = obtenerPiscina(piscinaId);
+
+  const tipoOrigen: TipoOrigenSiembra =
+    piscinaActual?.tipo === 'Precría'
+      ? 'Directa'
+      : datos.tipoOrigen ?? cicloActivo.siembra.tipoOrigen ?? 'Directa';
+
+  if (
+    tipoOrigen !== 'Directa' &&
+    (!datos.piscinaOrigenId || datos.piscinaOrigenId === piscinaId)
+  ) {
+    throw new Error('Selecciona una piscina de origen válida.');
+  }
+
+  let cicloOrigen: number | null = null;
+
+  if (tipoOrigen !== 'Directa' && datos.piscinaOrigenId) {
+    const piscinaOrigen = obtenerPiscina(datos.piscinaOrigenId);
+
+    if (!piscinaOrigen) {
+      throw new Error('La piscina de origen no existe.');
+    }
+
+    if (
+      tipoOrigen === 'Precría' &&
+      (piscinaOrigen.tipo ?? 'Engorde') !== 'Precría'
+    ) {
+      throw new Error('El origen seleccionado debe ser una precría.');
+    }
+
+    if (
+      tipoOrigen === 'Madre/Hija' &&
+      (piscinaOrigen.tipo ?? 'Engorde') !== 'Engorde'
+    ) {
+      throw new Error('La piscina madre debe ser una piscina de engorde.');
+    }
+
+    const cicloActivoOrigen = obtenerCicloActivo(piscinaOrigen.id);
+
+    if (!cicloActivoOrigen?.siembra) {
+      throw new Error(
+        `La piscina ${piscinaOrigen.nombre} no tiene una siembra activa.`
+      );
+    }
+
+    cicloOrigen = cicloActivoOrigen.numero;
+  }
+
   const nauplios = normalizarLista(datos.nauplios);
   const laboratorios =
     normalizarLista(datos.laboratorios);
@@ -715,6 +900,36 @@ export function actualizarSiembraActual(
                     laboratorios.length > 0
                       ? laboratorios.join(', ')
                       : datos.procedencia.trim(),
+                  tipoOrigen,
+                  piscinaOrigenId:
+                    tipoOrigen === 'Directa'
+                      ? null
+                      : datos.piscinaOrigenId ?? null,
+                  piscinaOrigenNombre:
+                    tipoOrigen === 'Directa'
+                      ? null
+                      : datos.piscinaOrigenNombre ?? null,
+                  cicloOrigen,
+                  fechaSiembraOrigen:
+                    tipoOrigen === 'Directa'
+                      ? null
+                      : datos.fechaSiembraOrigen ?? null,
+                  cantidadSembradaOrigen:
+                    tipoOrigen === 'Directa'
+                      ? null
+                      : datos.cantidadSembradaOrigen ?? null,
+                  pesoInicialOrigen:
+                    tipoOrigen === 'Directa'
+                      ? null
+                      : datos.pesoInicialOrigen ?? null,
+                  naupliosOrigen:
+                    tipoOrigen === 'Directa'
+                      ? []
+                      : normalizarLista(datos.naupliosOrigen),
+                  laboratoriosOrigen:
+                    tipoOrigen === 'Directa'
+                      ? []
+                      : normalizarLista(datos.laboratoriosOrigen),
                   observacion:
                     datos.observacion.trim(),
                 }
@@ -815,6 +1030,152 @@ export function cerrarCicloPorLiquidacion(
 }
 
 /* =========================================================
+   DESTINOS Y LIQUIDACIÓN DE PRECRÍA
+========================================================= */
+
+export function obtenerDestinosPrecria(
+  piscinaOrigenId: number,
+  cicloOrigen: number
+) {
+  return state.ciclos
+    .filter((ciclo) => {
+      const siembra = ciclo.siembra;
+
+      return (
+        siembra !== null &&
+        siembra.tipoOrigen === 'Precría' &&
+        siembra.piscinaOrigenId === piscinaOrigenId &&
+        siembra.cicloOrigen === cicloOrigen
+      );
+    })
+    .map((ciclo) => {
+      const piscinaDestino = obtenerPiscina(ciclo.piscinaId);
+
+      return {
+        piscinaId: ciclo.piscinaId,
+        piscinaNombre:
+          piscinaDestino?.nombre ?? `Piscina ID ${ciclo.piscinaId}`,
+        ciclo: ciclo.numero,
+        fecha: ciclo.siembra?.fecha ?? '',
+        cantidadSembrada: ciclo.siembra?.cantidadSembrada ?? 0,
+        pesoInicial: ciclo.siembra?.pesoInicial ?? null,
+      };
+    })
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
+export function liquidarPrecria(
+  piscinaId: number,
+  datos: {
+    fecha: string;
+    observacion?: string;
+  }
+) {
+  const piscina = obtenerPiscina(piscinaId);
+
+  if (!piscina) {
+    throw new Error('La precría no existe.');
+  }
+
+  if ((piscina.tipo ?? 'Engorde') !== 'Precría') {
+    throw new Error(
+      'Esta acción solamente está disponible para piscinas tipo Precría.'
+    );
+  }
+
+  const cicloActivo = obtenerCicloActivo(piscinaId);
+
+  if (!cicloActivo?.siembra) {
+    throw new Error(
+      `La precría ${piscina.nombre} no tiene una siembra activa.`
+    );
+  }
+
+  if (!datos.fecha) {
+    throw new Error('Ingresa la fecha de liquidación.');
+  }
+
+  if (datos.fecha < cicloActivo.siembra.fecha) {
+    throw new Error(
+      'La fecha de liquidación no puede ser anterior a la fecha de siembra.'
+    );
+  }
+
+  const destinos = obtenerDestinosPrecria(
+    piscinaId,
+    cicloActivo.numero
+  );
+
+  if (destinos.length === 0) {
+    throw new Error(
+      `No se puede liquidar la precría ${piscina.nombre}. Primero registra al menos una transferencia o siembra de engorde desde el Ciclo ${cicloActivo.numero}.`
+    );
+  }
+
+  const cantidadInicial =
+    cicloActivo.siembra.cantidadSembrada;
+
+  const totalTransferido = destinos.reduce(
+    (total, destino) =>
+      total + destino.cantidadSembrada,
+    0
+  );
+
+  if (totalTransferido > cantidadInicial) {
+    throw new Error(
+      `El total transferido (${totalTransferido.toLocaleString()}) supera la cantidad sembrada (${cantidadInicial.toLocaleString()}). Revisa las siembras de destino antes de liquidar.`
+    );
+  }
+
+  const diferencia =
+    cantidadInicial - totalTransferido;
+
+  const supervivencia =
+    cantidadInicial > 0
+      ? (totalTransferido / cantidadInicial) * 100
+      : 0;
+
+  const liquidacion: LiquidacionPrecria = {
+    fecha: datos.fecha,
+    cantidadInicial,
+    totalTransferido,
+    diferencia,
+    supervivencia,
+    observacion: datos.observacion?.trim() ?? '',
+  };
+
+  actualizarEstado((actual) => ({
+    piscinas: actual.piscinas.map((p) =>
+      p.id === piscinaId
+        ? {
+            ...p,
+            estado: 'Disponible',
+          }
+        : p
+    ),
+    ciclos: actual.ciclos.map((ciclo) =>
+      ciclo.id === cicloActivo.id
+        ? {
+            ...ciclo,
+            estado: 'Cerrado',
+            fechaCierre: datos.fecha,
+            liquidacionPrecria: liquidacion,
+          }
+        : ciclo
+    ),
+  }));
+
+  return {
+    piscinaId,
+    piscina: piscina.nombre,
+    cicloCerrado: cicloActivo.numero,
+    proximoCiclo: cicloActivo.numero + 1,
+    destinos,
+    liquidacion,
+  };
+}
+
+/* =========================================================
    SABER SI PUEDE RECIBIR NUEVA SIEMBRA
 ========================================================= */
 
@@ -832,6 +1193,60 @@ export function puedeRegistrarNuevaSiembra(
   }
 
   return !obtenerCicloActivo(piscinaId);
+}
+
+/* =========================================================
+   TRAZABILIDAD PRECRÍA / ENGORDE / MADRE-HIJA
+========================================================= */
+
+export function obtenerPiscinasPrecriaActivas() {
+  return state.piscinas.filter(
+    (piscina) =>
+      (piscina.tipo ?? 'Engorde') === 'Precría' &&
+      Boolean(obtenerCicloActivo(piscina.id)?.siembra)
+  );
+}
+
+export function obtenerPiscinasEngordeActivas(
+  excluirPiscinaId?: number
+) {
+  return state.piscinas.filter(
+    (piscina) =>
+      piscina.id !== excluirPiscinaId &&
+      (piscina.tipo ?? 'Engorde') === 'Engorde' &&
+      Boolean(obtenerCicloActivo(piscina.id)?.siembra)
+  );
+}
+
+export function obtenerOrigenSiembra(piscinaId: number) {
+  const siembra = obtenerSiembraActual(piscinaId);
+
+  if (
+    !siembra ||
+    !siembra.piscinaOrigenId ||
+    (siembra.tipoOrigen ?? 'Directa') === 'Directa'
+  ) {
+    return null;
+  }
+
+  const piscinaOrigen = obtenerPiscina(siembra.piscinaOrigenId);
+
+  if (!piscinaOrigen) {
+    return null;
+  }
+
+  const ciclosOrigen = obtenerCiclosPiscina(piscinaOrigen.id);
+  const cicloOrigen =
+    ciclosOrigen.find((ciclo) => ciclo.numero === siembra.cicloOrigen) ??
+    obtenerCicloActivo(piscinaOrigen.id) ??
+    null;
+
+  return {
+    tipoOrigen: siembra.tipoOrigen ?? 'Directa',
+    piscina: piscinaOrigen,
+    ciclo: cicloOrigen,
+    siembra: cicloOrigen?.siembra ?? null,
+  };
 }
 
 /* =========================================================

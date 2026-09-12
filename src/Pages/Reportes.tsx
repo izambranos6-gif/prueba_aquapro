@@ -20,7 +20,10 @@ import {
   YAxis,
 } from 'recharts';
 
-import { useAquaProStore } from '../store/aquaProStore';
+import {
+  useAquaProStore,
+  obtenerDestinosPrecria,
+} from '../store/aquaProStore';
 
 const PESCAS_STORAGE_KEY = 'aquapro-pescas-v1';
 const PESOS_STORAGE_KEY = 'aquapro-pesos-v1';
@@ -217,6 +220,42 @@ export default function Reportes() {
   const piscina = piscinas.find((p) => p.id === piscinaId) ?? null;
   const ciclo = ciclosPiscina.find((c) => c.numero === cicloNumero) ?? null;
 
+  const esPrecria = (piscina?.tipo ?? 'Engorde') === 'Precría';
+
+  const destinosPrecria = useMemo(() => {
+    if (!piscina || !ciclo || !esPrecria) return [];
+
+    return obtenerDestinosPrecria(
+      piscina.id,
+      ciclo.numero
+    );
+  }, [piscina, ciclo, esPrecria, ciclos]);
+
+  const cantidadInicialPrecria =
+    ciclo?.siembra?.cantidadSembrada ?? 0;
+
+  const totalTransferidoPrecria =
+    ciclo?.liquidacionPrecria?.totalTransferido ??
+    destinosPrecria.reduce(
+      (sum, destino) => sum + numero(destino.cantidadSembrada),
+      0
+    );
+
+  const diferenciaPrecria =
+    ciclo?.liquidacionPrecria?.diferencia ??
+    (cantidadInicialPrecria > 0
+      ? Math.max(
+          cantidadInicialPrecria - totalTransferidoPrecria,
+          0
+        )
+      : 0);
+
+  const supervivenciaPrecria =
+    ciclo?.liquidacionPrecria?.supervivencia ??
+    (cantidadInicialPrecria > 0 && destinosPrecria.length > 0
+      ? (totalTransferidoPrecria / cantidadInicialPrecria) * 100
+      : null);
+
   const pescasCiclo = useMemo(() => {
     if (!piscina || !cicloNumero) return [];
     return pescas.filter(
@@ -349,8 +388,8 @@ export default function Reportes() {
           <div style={styles.eyebrow}>ANÁLISIS PRODUCTIVO</div>
           <h1 style={styles.h1}>📊 Reportes</h1>
           <p style={styles.muted}>
-            Resumen completo por piscina y ciclo, incluido el factor de
-            conversión alimenticia.
+            Resumen por piscina y ciclo con análisis de engorde y trazabilidad
+            de precrías.
           </p>
         </div>
 
@@ -364,7 +403,8 @@ export default function Reportes() {
             >
               {piscinasConCiclos.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.nombre}
+                  {(p.tipo ?? 'Engorde') === 'Precría' ? '🍼' : '🌊'}{' '}
+                  {p.nombre} · {p.tipo ?? 'Engorde'}
                 </option>
               ))}
             </select>
@@ -389,6 +429,525 @@ export default function Reportes() {
 
       {piscina && ciclo && (
         <>
+          {esPrecria ? (
+
+            <>
+              <section style={styles.heroCard}>
+                <div>
+                  <div style={styles.heroTop}>
+                    <span style={styles.poolBadge}>🍼 {piscina.nombre}</span>
+
+                    <span
+                      style={{
+                        ...styles.statusBadge,
+                        ...(ciclo.estado === 'Cerrado'
+                          ? styles.statusClosed
+                          : styles.statusActive),
+                      }}
+                    >
+                      {ciclo.estado === 'Cerrado'
+                        ? '🔒 Ciclo cerrado'
+                        : '🟢 Ciclo activo'}
+                    </span>
+
+                    <span
+                      style={{
+                        ...styles.statusBadge,
+                        background: '#fff5df',
+                        color: '#9a6816',
+                      }}
+                    >
+                      🍼 Precría
+                    </span>
+                  </div>
+
+                  <h2 style={styles.heroTitle}>Ciclo {ciclo.numero}</h2>
+
+                  <div style={styles.heroMeta}>
+                    <span>📍 Zona {piscina.zona}</span>
+                    <span>📐 {formatoNumero(piscina.hectareas, 2)} ha</span>
+                    <span>🌱 Inicio {fechaBonita(ciclo.fechaInicio)}</span>
+                    <span>⏱️ {diasCultivo ?? 0} días en precría</span>
+                  </div>
+                </div>
+
+                <div style={styles.fcaHero}>
+                  <span>
+                    {ciclo.estado === 'Cerrado'
+                      ? 'SUPERVIVENCIA FINAL'
+                      : 'SUPERVIVENCIA ESTIMADA'}
+                  </span>
+
+                  <strong>
+                    {supervivenciaPrecria === null
+                      ? '—'
+                      : `${formatoNumero(supervivenciaPrecria, 2)} %`}
+                  </strong>
+
+                  <small>Transferido ÷ sembrado</small>
+                </div>
+              </section>
+
+              <section style={styles.summaryGrid}>
+                <SummaryCard
+                  emoji="🌱"
+                  label="Larvas sembradas"
+                  value={formatoEntero(cantidadInicialPrecria)}
+                  note="cantidad inicial"
+                />
+
+                <SummaryCard
+                  emoji="⚖️"
+                  label="Peso inicial"
+                  value={
+                    ciclo.siembra?.pesoInicial != null
+                      ? `${formatoNumero(ciclo.siembra.pesoInicial, 3)} g`
+                      : '—'
+                  }
+                  note="siembra en precría"
+                />
+
+                <SummaryCard
+                  emoji="➡️"
+                  label="Total transferido"
+                  value={formatoEntero(totalTransferidoPrecria)}
+                  note={`${destinosPrecria.length} destino${
+                    destinosPrecria.length === 1 ? '' : 's'
+                  }`}
+                />
+
+                <SummaryCard
+                  emoji="📉"
+                  label="Diferencia"
+                  value={formatoEntero(diferenciaPrecria)}
+                  note="sembrado - transferido"
+                />
+
+                <SummaryCard
+                  emoji="📊"
+                  label={
+                    ciclo.estado === 'Cerrado'
+                      ? 'Supervivencia final'
+                      : 'Supervivencia estimada'
+                  }
+                  value={
+                    supervivenciaPrecria === null
+                      ? '—'
+                      : `${formatoNumero(supervivenciaPrecria, 2)} %`
+                  }
+                  note={
+                    supervivenciaPrecria === null
+                      ? 'Aún sin transferencias'
+                      : 'Cálculo automático'
+                  }
+                  highlighted
+                />
+
+                <SummaryCard
+                  emoji="🌊"
+                  label="Piscinas destino"
+                  value={String(destinosPrecria.length)}
+                  note={
+                    destinosPrecria.length > 0
+                      ? 'transferencias registradas'
+                      : 'sin transferencias'
+                  }
+                />
+              </section>
+
+              <section style={styles.twoColumns}>
+                <Panel
+                  title="🍼 Datos de la precría"
+                  icon={<Sprout size={19} />}
+                >
+                  <DataRow
+                    label="Fecha de siembra"
+                    value={fechaBonita(ciclo.siembra?.fecha)}
+                  />
+
+                  <DataRow
+                    label="Cantidad sembrada"
+                    value={formatoEntero(cantidadInicialPrecria)}
+                  />
+
+                  <DataRow
+                    label="Densidad de siembra"
+                    value={
+                      cantidadInicialPrecria > 0 && piscina.hectareas > 0
+                        ? `${Math.round(
+                            cantidadInicialPrecria / piscina.hectareas
+                          ).toLocaleString('es-EC')} larvas/ha`
+                        : '—'
+                    }
+                  />
+
+                  <DataRow
+                    label="Peso inicial"
+                    value={
+                      ciclo.siembra?.pesoInicial != null
+                        ? `${formatoNumero(ciclo.siembra.pesoInicial, 3)} g`
+                        : '—'
+                    }
+                  />
+
+                  <DataRow
+                    label="Nauplios"
+                    value={
+                      (ciclo.siembra?.nauplios ?? []).length > 0
+                        ? (ciclo.siembra?.nauplios ?? []).join(' • ')
+                        : '—'
+                    }
+                  />
+
+                  <DataRow
+                    label="Laboratorio"
+                    value={
+                      (ciclo.siembra?.laboratorios ?? []).length > 0
+                        ? (ciclo.siembra?.laboratorios ?? []).join(' • ')
+                        : ciclo.siembra?.procedencia || '—'
+                    }
+                  />
+
+                  <DataRow
+                    label="Días en precría"
+                    value={`${diasCultivo ?? 0} días`}
+                  />
+
+                  <DataRow
+                    label="Estado"
+                    value={
+                      ciclo.estado === 'Cerrado'
+                        ? 'Ciclo cerrado'
+                        : 'En producción'
+                    }
+                    strong
+                  />
+                </Panel>
+
+                <Panel
+                  title="📊 Resultado de la precría"
+                  icon={<BarChart3 size={19} />}
+                >
+                  <DataRow
+                    label="Cantidad inicial"
+                    value={formatoEntero(cantidadInicialPrecria)}
+                  />
+
+                  <DataRow
+                    label="Total transferido"
+                    value={formatoEntero(totalTransferidoPrecria)}
+                  />
+
+                  <DataRow
+                    label="Diferencia"
+                    value={formatoEntero(diferenciaPrecria)}
+                  />
+
+                  <DataRow
+                    label={
+                      ciclo.estado === 'Cerrado'
+                        ? 'Supervivencia final'
+                        : 'Supervivencia estimada'
+                    }
+                    value={
+                      supervivenciaPrecria === null
+                        ? '—'
+                        : `${formatoNumero(supervivenciaPrecria, 2)} %`
+                    }
+                    strong
+                  />
+
+                  <DataRow
+                    label="Fecha de liquidación"
+                    value={fechaBonita(
+                      ciclo.liquidacionPrecria?.fecha ??
+                        ciclo.fechaCierre
+                    )}
+                  />
+
+                  <DataRow
+                    label="Observación de liquidación"
+                    value={
+                      ciclo.liquidacionPrecria?.observacion?.trim()
+                        ? ciclo.liquidacionPrecria.observacion
+                        : '—'
+                    }
+                  />
+                </Panel>
+              </section>
+
+              <section style={styles.panel}>
+                <div style={styles.panelHeader}>
+                  <div>
+                    <div style={styles.panelEyebrow}>
+                      TRAZABILIDAD
+                    </div>
+
+                    <h3 style={styles.panelTitle}>
+                      ➡️ Transferencias / siembras destino
+                    </h3>
+                  </div>
+
+                  <Waves size={22} />
+                </div>
+
+                {destinosPrecria.length > 0 ? (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '10px',
+                    }}
+                  >
+                    {destinosPrecria.map((destino) => (
+                      <div
+                        key={`${destino.piscinaId}-${destino.ciclo}`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns:
+                            'repeat(auto-fit, minmax(160px, 1fr))',
+                          gap: '10px',
+                          alignItems: 'center',
+                          padding: '13px 14px',
+                          borderRadius: '12px',
+                          background: '#f8fbfb',
+                          border: '1px solid #e3ecea',
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              color: '#71837f',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Piscina destino
+                          </div>
+                          <strong>🌊 {destino.piscinaNombre}</strong>
+                        </div>
+
+                        <div>
+                          <div
+                            style={{
+                              color: '#71837f',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Ciclo
+                          </div>
+                          <strong>Ciclo {destino.ciclo}</strong>
+                        </div>
+
+                        <div>
+                          <div
+                            style={{
+                              color: '#71837f',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Fecha destino
+                          </div>
+                          <strong>{fechaBonita(destino.fecha)}</strong>
+                        </div>
+
+                        <div>
+                          <div
+                            style={{
+                              color: '#71837f',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Cantidad
+                          </div>
+                          <strong>
+                            {formatoEntero(destino.cantidadSembrada)}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <div
+                            style={{
+                              color: '#71837f',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Peso inicial destino
+                          </div>
+                          <strong>
+                            {destino.pesoInicial != null
+                              ? `${formatoNumero(
+                                  destino.pesoInicial,
+                                  3
+                                )} g`
+                              : '—'}
+                          </strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={styles.chartEmpty}>
+                    Aún no existen transferencias registradas desde esta
+                    precría en este ciclo.
+                  </div>
+                )}
+              </section>
+
+              <section style={styles.panel}>
+                <div style={styles.panelHeader}>
+                  <div>
+                    <div style={styles.panelEyebrow}>
+                      CALIDAD DE AGUA
+                    </div>
+                    <h3 style={styles.panelTitle}>
+                      💧 Resumen del ciclo
+                    </h3>
+                  </div>
+                  <Droplets size={22} />
+                </div>
+
+                <div style={styles.waterGrid}>
+                  <WaterMetric
+                    label="Oxígeno promedio"
+                    value={oxigenoProm}
+                    unit="mg/L"
+                  />
+                  <WaterMetric
+                    label="Oxígeno mínimo"
+                    value={oxigenoMin}
+                    unit="mg/L"
+                    alert={oxigenoMin !== null && oxigenoMin <= 3.5}
+                  />
+                  <WaterMetric
+                    label="Saturación promedio"
+                    value={saturacionProm}
+                    unit="%"
+                  />
+                  <WaterMetric
+                    label="Temperatura promedio"
+                    value={temperaturaProm}
+                    unit="°C"
+                  />
+                  <WaterMetric
+                    label="Salinidad promedio"
+                    value={salinidadProm}
+                    unit="ppt"
+                  />
+                  <WaterMetric
+                    label="pH promedio"
+                    value={phProm}
+                    unit=""
+                  />
+                </div>
+              </section>
+
+              <section style={styles.chartsGrid}>
+                <ChartPanel
+                  title="📈 Evolución del peso"
+                  empty={!datosPeso.length}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={datosPeso}
+                      margin={{
+                        top: 10,
+                        right: 16,
+                        left: -8,
+                        bottom: 0,
+                      }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="fecha"
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis tick={{ fontSize: 11 }} unit=" g" />
+                      <Tooltip
+                        formatter={(v) => [`${v} g`, 'Peso']}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="peso"
+                        stroke="#22a890"
+                        strokeWidth={3}
+                        dot={{ r: 4 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartPanel>
+
+                <ChartPanel
+                  title="💨 Evolución del oxígeno"
+                  empty={!datosOxigeno.length}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={datosOxigeno}
+                      margin={{
+                        top: 10,
+                        right: 16,
+                        left: -8,
+                        bottom: 0,
+                      }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="fecha"
+                        tick={{ fontSize: 10 }}
+                        minTickGap={25}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11 }}
+                        domain={[0, 'auto']}
+                        unit=""
+                      />
+                      <Tooltip
+                        formatter={(v) => [
+                          `${v} mg/L`,
+                          'Oxígeno',
+                        ]}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="oxigeno"
+                        stroke="#4c9fbd"
+                        strokeWidth={3}
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartPanel>
+              </section>
+
+              <div style={styles.note}>
+                <BarChart3 size={20} />
+                <div>
+                  <strong>
+                    Este reporte muestra la trazabilidad de la precría
+                    y sus siembras destino.
+                  </strong>
+                  <div style={styles.mutedSmall}>
+                    Mientras no exista una transferencia, AquaPro no
+                    mostrará una supervivencia estimada. Al liquidar la
+                    precría, el resultado queda guardado en el ciclo
+                    histórico.
+                  </div>
+                </div>
+              </div>
+            </>
+
+          ) : (
+            <>
           <section style={styles.heroCard}>
             <div>
               <div style={styles.heroTop}>
@@ -757,6 +1316,8 @@ export default function Reportes() {
               </div>
             </div>
           </div>
+            </>
+          )}
         </>
       )}
     </div>

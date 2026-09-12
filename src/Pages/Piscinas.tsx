@@ -11,8 +11,12 @@ import {
   obtenerCicloActivo,
   obtenerCiclosPiscina,
   obtenerProximoNumeroCiclo,
+  obtenerDestinosPrecria,
+  liquidarPrecria,
   type Piscina,
   type EstadoPiscina,
+  type TipoPiscina,
+  type TipoOrigenSiembra,
 } from '../store/aquaProStore';
 
 /* =========================================================
@@ -24,6 +28,7 @@ const formularioPiscinaInicial = {
   zona: 'Norte',
   hectareas: '',
   estado: 'Disponible' as EstadoPiscina,
+  tipo: 'Engorde' as TipoPiscina,
   cicloInicial: '1',
 };
 
@@ -34,6 +39,8 @@ const formularioSiembraInicial = {
   procedencia: '',
   nauplios: [] as string[],
   laboratorios: [] as string[],
+  tipoOrigen: 'Directa' as TipoOrigenSiembra,
+  piscinaOrigenId: '',
   observacion: '',
 };
 
@@ -89,6 +96,19 @@ export default function Piscinas() {
   const [nuevoLaboratorio, setNuevoLaboratorio] = useState('');
 
   /* =======================================================
+     MODAL LIQUIDACIÓN PRECRÍA
+  ======================================================= */
+
+  const [mostrarLiquidacionPrecria, setMostrarLiquidacionPrecria] =
+    useState(false);
+
+  const [fechaLiquidacionPrecria, setFechaLiquidacionPrecria] =
+    useState('');
+
+  const [observacionLiquidacionPrecria, setObservacionLiquidacionPrecria] =
+    useState('');
+
+  /* =======================================================
      PISCINA SELECCIONADA
   ======================================================= */
 
@@ -101,6 +121,70 @@ export default function Piscinas() {
       : undefined;
 
   const siembraActual = cicloActivoSiembra?.siembra ?? null;
+
+  const destinosPrecria =
+    piscinaSiembra &&
+    piscinaSiembra.tipo === 'Precría' &&
+    cicloActivoSiembra
+      ? obtenerDestinosPrecria(
+          piscinaSiembra.id,
+          cicloActivoSiembra.numero
+        )
+      : [];
+
+  const totalTransferidoPrecria = destinosPrecria.reduce(
+    (total, destino) => total + destino.cantidadSembrada,
+    0
+  );
+
+  const diferenciaPrecria =
+    siembraActual
+      ? Math.max(
+          siembraActual.cantidadSembrada - totalTransferidoPrecria,
+          0
+        )
+      : 0;
+
+  const supervivenciaPrecria =
+    siembraActual && siembraActual.cantidadSembrada > 0
+      ? (totalTransferidoPrecria /
+          siembraActual.cantidadSembrada) *
+        100
+      : 0;
+
+  const piscinasPrecriaDisponibles = useMemo(
+    () =>
+      piscinas.filter((piscina) => {
+        if (piscina.id === piscinaSiembraId) return false;
+        if (piscina.tipo !== 'Precría') return false;
+
+        return obtenerCicloActivo(piscina.id)?.siembra != null;
+      }),
+    [piscinas, piscinaSiembraId]
+  );
+
+  const piscinasMadreDisponibles = useMemo(
+    () =>
+      piscinas.filter((piscina) => {
+        if (piscina.id === piscinaSiembraId) return false;
+        if (piscina.tipo !== 'Engorde') return false;
+
+        return obtenerCicloActivo(piscina.id)?.siembra != null;
+      }),
+    [piscinas, piscinaSiembraId]
+  );
+
+  const piscinaOrigenSeleccionada = formularioSiembra.piscinaOrigenId
+    ? piscinas.find(
+        (piscina) => piscina.id === Number(formularioSiembra.piscinaOrigenId)
+      ) ?? null
+    : null;
+
+  const cicloOrigenSeleccionado = piscinaOrigenSeleccionada
+    ? obtenerCicloActivo(piscinaOrigenSeleccionada.id)
+    : undefined;
+
+  const siembraOrigenSeleccionada = cicloOrigenSeleccionado?.siembra ?? null;
 
   /* =======================================================
      PISCINA EN EDICIÓN
@@ -184,6 +268,7 @@ export default function Piscinas() {
       zona: piscina.zona,
       hectareas: piscina.hectareas.toString(),
       estado: piscina.estado,
+      tipo: piscina.tipo ?? 'Engorde',
       cicloInicial: piscina.cicloInicial.toString(),
     });
 
@@ -224,6 +309,8 @@ export default function Piscinas() {
 
           hectareas: Number(formularioPiscina.hectareas),
 
+          tipo: formularioPiscina.tipo,
+
           ...(cicloActivoPiscinaEditando
             ? {}
             : {
@@ -241,6 +328,8 @@ export default function Piscinas() {
           hectareas: Number(formularioPiscina.hectareas),
 
           estado: formularioPiscina.estado,
+
+          tipo: formularioPiscina.tipo,
 
           cicloInicial: Number(formularioPiscina.cicloInicial),
         });
@@ -316,6 +405,12 @@ export default function Piscinas() {
             : siembra.procedencia
             ? [siembra.procedencia]
             : [],
+
+        tipoOrigen: siembra.tipoOrigen ?? 'Directa',
+
+        piscinaOrigenId: siembra.piscinaOrigenId
+          ? String(siembra.piscinaOrigenId)
+          : '',
 
         observacion: siembra.observacion,
       });
@@ -452,19 +547,82 @@ export default function Piscinas() {
         throw new Error('Ingresa un peso inicial válido.');
       }
 
+      const tipoOrigen: TipoOrigenSiembra =
+        piscinaSiembra.tipo === 'Precría'
+          ? 'Directa'
+          : formularioSiembra.tipoOrigen;
+
+      let piscinaOrigenId: number | undefined;
+      let piscinaOrigenNombre: string | undefined;
+      let cicloOrigen: number | undefined;
+      let fechaSiembraOrigen: string | undefined;
+      let cantidadSembradaOrigen: number | undefined;
+      let pesoInicialOrigen: number | null | undefined;
+      let naupliosOrigen: string[] = [];
+      let laboratoriosOrigen: string[] = [];
+
+      if (tipoOrigen !== 'Directa') {
+        piscinaOrigenId = Number(formularioSiembra.piscinaOrigenId);
+
+        if (!piscinaOrigenId) {
+          throw new Error(
+            tipoOrigen === 'Precría'
+              ? 'Selecciona la precría de origen.'
+              : 'Selecciona la piscina madre.'
+          );
+        }
+
+        const origen = piscinas.find((piscina) => piscina.id === piscinaOrigenId);
+        const cicloOrigenActivo = origen
+          ? obtenerCicloActivo(origen.id)
+          : undefined;
+        const siembraOrigen = cicloOrigenActivo?.siembra ?? null;
+
+        if (!origen || !cicloOrigenActivo || !siembraOrigen) {
+          throw new Error(
+            'La piscina de origen debe tener una siembra activa para realizar la transferencia.'
+          );
+        }
+
+        if (tipoOrigen === 'Precría' && origen.tipo !== 'Precría') {
+          throw new Error('La piscina seleccionada no es una precría.');
+        }
+
+        piscinaOrigenNombre = origen.nombre;
+        cicloOrigen = cicloOrigenActivo.numero;
+        fechaSiembraOrigen = siembraOrigen.fecha;
+        cantidadSembradaOrigen = siembraOrigen.cantidadSembrada;
+        pesoInicialOrigen = siembraOrigen.pesoInicial;
+        naupliosOrigen = [...(siembraOrigen.nauplios ?? [])];
+        laboratoriosOrigen = [...(siembraOrigen.laboratorios ?? [])];
+      }
+
+      const naupliosFinales =
+        tipoOrigen === 'Directa'
+          ? formularioSiembra.nauplios
+          : naupliosOrigen;
+
+      const laboratoriosFinales =
+        tipoOrigen === 'Directa'
+          ? formularioSiembra.laboratorios
+          : laboratoriosOrigen;
+
       const datos = {
         fecha: formularioSiembra.fecha,
-
         cantidadSembrada: Number(formularioSiembra.cantidadSembrada),
-
         pesoInicial: Number(formularioSiembra.pesoInicial),
-
-        nauplios: formularioSiembra.nauplios,
-
-        laboratorios: formularioSiembra.laboratorios,
-
-        procedencia: formularioSiembra.laboratorios.join(', '),
-
+        nauplios: naupliosFinales,
+        laboratorios: laboratoriosFinales,
+        procedencia: laboratoriosFinales.join(', '),
+        tipoOrigen,
+        piscinaOrigenId,
+        piscinaOrigenNombre,
+        cicloOrigen,
+        fechaSiembraOrigen,
+        cantidadSembradaOrigen,
+        pesoInicialOrigen,
+        naupliosOrigen,
+        laboratoriosOrigen,
         observacion: formularioSiembra.observacion,
       };
 
@@ -542,6 +700,100 @@ export default function Piscinas() {
   }
 
   /* =======================================================
+     LIQUIDAR PRECRÍA
+  ======================================================= */
+
+  function abrirLiquidacionPrecria() {
+    if (!piscinaSiembra || !cicloActivoSiembra || !siembraActual) {
+      return;
+    }
+
+    if (piscinaSiembra.tipo !== 'Precría') {
+      alert('Esta acción solamente está disponible para precrías.');
+      return;
+    }
+
+    const destinos = obtenerDestinosPrecria(
+      piscinaSiembra.id,
+      cicloActivoSiembra.numero
+    );
+
+    if (destinos.length === 0) {
+      alert(
+        `⚠️ No se puede liquidar la precría ${piscinaSiembra.nombre}.\n\n` +
+          `El Ciclo ${cicloActivoSiembra.numero} todavía no tiene ninguna transferencia o siembra de engorde registrada.\n\n` +
+          'Primero registra al menos una piscina de Engorde utilizando esta precría como origen.'
+      );
+      return;
+    }
+
+    setFechaLiquidacionPrecria(
+      new Date().toISOString().slice(0, 10)
+    );
+
+    setObservacionLiquidacionPrecria('');
+    setMostrarLiquidacionPrecria(true);
+  }
+
+  function cerrarLiquidacionPrecria() {
+    setMostrarLiquidacionPrecria(false);
+    setFechaLiquidacionPrecria('');
+    setObservacionLiquidacionPrecria('');
+  }
+
+  function confirmarLiquidacionPrecria(e: FormEvent) {
+    e.preventDefault();
+
+    if (!piscinaSiembra || !cicloActivoSiembra || !siembraActual) {
+      return;
+    }
+
+    if (!fechaLiquidacionPrecria) {
+      alert('⚠️ Ingresa la fecha de liquidación.');
+      return;
+    }
+
+    const confirmar = window.confirm(
+      `🔒 ¿Confirmas la liquidación de ${piscinaSiembra.nombre} - Ciclo ${cicloActivoSiembra.numero}?\n\n` +
+        `Cantidad sembrada: ${siembraActual.cantidadSembrada.toLocaleString()} camarones\n` +
+        `Total transferido: ${totalTransferidoPrecria.toLocaleString()} camarones\n` +
+        `Diferencia: ${diferenciaPrecria.toLocaleString()} camarones\n` +
+        `Supervivencia estimada: ${supervivenciaPrecria.toFixed(2)} %\n\n` +
+        'El ciclo quedará cerrado y la precría pasará a Disponible.'
+    );
+
+    if (!confirmar) {
+      return;
+    }
+
+    try {
+      const resultado = liquidarPrecria(
+        piscinaSiembra.id,
+        {
+          fecha: fechaLiquidacionPrecria,
+          observacion: observacionLiquidacionPrecria,
+        }
+      );
+
+      alert(
+        `✅ Precría liquidada correctamente.\n\n` +
+          `🔒 Ciclo ${resultado.cicloCerrado} finalizado.\n` +
+          `🌱 Próximo: Ciclo ${resultado.proximoCiclo}.\n` +
+          `🟢 ${resultado.piscina} quedó Disponible para una nueva siembra.`
+      );
+
+      cerrarLiquidacionPrecria();
+      cerrarSiembra();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo liquidar la precría.'
+      );
+    }
+  }
+
+  /* =======================================================
      CÁLCULOS
   ======================================================= */
 
@@ -566,6 +818,22 @@ export default function Piscinas() {
     const dias = Math.floor(diferencia / (1000 * 60 * 60 * 24));
 
     return Math.max(dias, 0);
+  }
+
+  function calcularDiasEntreFechas(
+    fechaInicio?: string | null,
+    fechaFin?: string | null
+  ) {
+    if (!fechaInicio || !fechaFin) return 0;
+
+    const inicio = new Date(`${fechaInicio}T00:00:00`);
+    const fin = new Date(`${fechaFin}T00:00:00`);
+    const diferencia = fin.getTime() - inicio.getTime();
+
+    return Math.max(
+      Math.floor(diferencia / (1000 * 60 * 60 * 24)),
+      0
+    );
   }
 
   /* =======================================================
@@ -693,6 +961,7 @@ export default function Piscinas() {
               <tr>
                 <th>Piscina</th>
                 <th>Zona</th>
+                <th>Tipo</th>
                 <th>Área</th>
                 <th>Ciclo actual</th>
                 <th>Siembra</th>
@@ -730,6 +999,28 @@ export default function Piscinas() {
                     {/* ZONA */}
 
                     <td>{piscina.zona}</td>
+
+                    {/* TIPO */}
+
+                    <td>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 10px',
+                          borderRadius: '999px',
+                          background:
+                            piscina.tipo === 'Precría' ? '#fff7e8' : '#eef8f6',
+                          color:
+                            piscina.tipo === 'Precría' ? '#a66a13' : '#1a796d',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {piscina.tipo === 'Precría' ? '🍼 Precría' : '🌊 Engorde'}
+                      </span>
+                    </td>
 
                     {/* ÁREA */}
 
@@ -900,7 +1191,7 @@ export default function Piscinas() {
 
               {piscinasFiltradas.length === 0 && (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <div className="empty-table">
                       🔎 No se encontraron piscinas con esos filtros.
                     </div>
@@ -972,10 +1263,24 @@ export default function Piscinas() {
                     }
                   >
                     <option>Norte</option>
-
                     <option>Centro</option>
-
                     <option>Sur</option>
+                  </select>
+                </label>
+
+                <label>
+                  Tipo de piscina
+                  <select
+                    value={formularioPiscina.tipo}
+                    onChange={(e) =>
+                      setFormularioPiscina({
+                        ...formularioPiscina,
+                        tipo: e.target.value as TipoPiscina,
+                      })
+                    }
+                  >
+                    <option value="Engorde">🌊 Engorde</option>
+                    <option value="Precría">🍼 Precría</option>
                   </select>
                 </label>
 
@@ -1218,6 +1523,11 @@ export default function Piscinas() {
                 valor={`${piscinaSiembra.hectareas.toFixed(2)} ha`}
               />
 
+              <DatoAutomatico
+                titulo="🏷️ Tipo"
+                valor={piscinaSiembra.tipo === 'Precría' ? 'Precría' : 'Engorde'}
+              />
+
               <DatoAutomatico titulo="🦐 Supervivencia inicial" valor="100 %" />
             </div>
 
@@ -1265,24 +1575,175 @@ export default function Piscinas() {
                     }
                   />
 
-                  <InfoSiembra
-                    titulo="🧫 Nauplios"
-                    valor={
-                      (siembraActual.nauplios ?? []).length > 0
-                        ? (siembraActual.nauplios ?? []).join(' • ')
-                        : 'No registrados'
-                    }
-                  />
+                  {(siembraActual.tipoOrigen ?? 'Directa') === 'Directa' && (
+                    <>
+                      <InfoSiembra
+                        titulo="🧫 Nauplios"
+                        valor={
+                          (siembraActual.nauplios ?? []).length > 0
+                            ? (siembraActual.nauplios ?? []).join(' • ')
+                            : 'No registrados'
+                        }
+                      />
 
-                  <InfoSiembra
-                    titulo="🧪 Laboratorios"
-                    valor={
-                      (siembraActual.laboratorios ?? []).length > 0
-                        ? (siembraActual.laboratorios ?? []).join(' • ')
-                        : siembraActual.procedencia || 'No registrados'
-                    }
-                  />
+                      <InfoSiembra
+                        titulo="🧪 Laboratorios"
+                        valor={
+                          (siembraActual.laboratorios ?? []).length > 0
+                            ? (siembraActual.laboratorios ?? []).join(' • ')
+                            : siembraActual.procedencia || 'No registrados'
+                        }
+                      />
+                    </>
+                  )}
                 </div>
+
+                {(siembraActual.tipoOrigen ?? 'Directa') !== 'Directa' && (
+                  <div
+                    style={{
+                      marginTop: '16px',
+                      padding: '16px',
+                      borderRadius: '16px',
+                      background: '#f8fbfb',
+                      border: '1px solid #dfecea',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        marginBottom: '13px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: '#244f49' }}>
+                          🔁 Origen de la siembra
+                        </strong>
+                        <div
+                          style={{
+                            color: '#718781',
+                            fontSize: '12px',
+                            marginTop: '3px',
+                          }}
+                        >
+                          Trazabilidad de la población antes de ingresar a esta piscina.
+                        </div>
+                      </div>
+
+                      <span
+                        style={{
+                          padding: '7px 10px',
+                          borderRadius: '999px',
+                          background: '#eef8f6',
+                          color: '#15796d',
+                          fontSize: '12px',
+                          fontWeight: 800,
+                        }}
+                      >
+                        {siembraActual.tipoOrigen === 'Precría'
+                          ? '🍼 Desde precría'
+                          : '🔄 Madre / Hija'}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                        gap: '12px',
+                      }}
+                    >
+                      <InfoSiembra
+                        titulo={
+                          siembraActual.tipoOrigen === 'Precría'
+                            ? '🍼 Precría de origen'
+                            : '🌊 Piscina madre'
+                        }
+                        valor={siembraActual.piscinaOrigenNombre || 'No registrada'}
+                      />
+
+                      <InfoSiembra
+                        titulo="🔄 Ciclo de origen"
+                        valor={
+                          siembraActual.cicloOrigen
+                            ? `Ciclo ${siembraActual.cicloOrigen}`
+                            : 'No registrado'
+                        }
+                      />
+
+                      <InfoSiembra
+                        titulo="📅 Fecha de siembra en origen"
+                        valor={formatearFecha(siembraActual.fechaSiembraOrigen ?? '')}
+                      />
+
+                      <InfoSiembra
+                        titulo="🦐 Cantidad sembrada en origen"
+                        valor={
+                          siembraActual.cantidadSembradaOrigen
+                            ? `${siembraActual.cantidadSembradaOrigen.toLocaleString()} camarones`
+                            : 'No registrada'
+                        }
+                      />
+
+                      <InfoSiembra
+                        titulo={
+                          siembraActual.tipoOrigen === 'Precría'
+                            ? '⚖️ Peso de siembra en precría'
+                            : '⚖️ Peso inicial en piscina madre'
+                        }
+                        valor={
+                          siembraActual.pesoInicialOrigen != null
+                            ? `${siembraActual.pesoInicialOrigen} g`
+                            : 'No registrado'
+                        }
+                      />
+
+                      {siembraActual.tipoOrigen === 'Precría' && (
+                        <InfoSiembra
+                          titulo="⏱️ Días en precría"
+                          valor={`${calcularDiasEntreFechas(
+                            siembraActual.fechaSiembraOrigen,
+                            siembraActual.fecha
+                          )} días`}
+                        />
+                      )}
+
+                      <InfoSiembra
+                        titulo="🧫 Nauplios"
+                        valor={
+                          (siembraActual.naupliosOrigen ?? siembraActual.nauplios ?? [])
+                            .length > 0
+                            ? (
+                                siembraActual.naupliosOrigen ??
+                                siembraActual.nauplios ??
+                                []
+                              ).join(' • ')
+                            : 'No registrados'
+                        }
+                      />
+
+                      <InfoSiembra
+                        titulo="🧪 Laboratorios"
+                        valor={
+                          (
+                            siembraActual.laboratoriosOrigen ??
+                            siembraActual.laboratorios ??
+                            []
+                          ).length > 0
+                            ? (
+                                siembraActual.laboratoriosOrigen ??
+                                siembraActual.laboratorios ??
+                                []
+                              ).join(' • ')
+                            : siembraActual.procedencia || 'No registrados'
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {siembraActual.observacion && (
                   <div
@@ -1334,14 +1795,6 @@ export default function Piscinas() {
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={cerrarSiembra}
-                  >
-                    Cerrar
-                  </button>
-
-                  <button
-                    type="button"
-                    className="secondary-button"
                     onClick={eliminarSiembra}
                   >
                     🗑️ Eliminar
@@ -1349,11 +1802,22 @@ export default function Piscinas() {
 
                   <button
                     type="button"
-                    className="primary-button"
+                    className="secondary-button"
                     onClick={() => setEditandoSiembra(true)}
                   >
                     ✏️ Editar siembra
                   </button>
+
+                  {piscinaSiembra?.tipo === 'Precría' &&
+                    cicloActivoSiembra && (
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={abrirLiquidacionPrecria}
+                      >
+                        🔒 Liquidar precría
+                      </button>
+                    )}
                 </div>
               </>
             ) : (
@@ -1379,6 +1843,164 @@ export default function Piscinas() {
                       Ciclo {obtenerProximoNumeroCiclo(piscinaSiembra.id)}
                     </strong>
                     .
+                  </div>
+                )}
+
+                {piscinaSiembra.tipo === 'Engorde' && (
+                  <div
+                    style={{
+                      marginBottom: '16px',
+                      padding: '16px',
+                      borderRadius: '16px',
+                      background: '#f8fbfb',
+                      border: '1px solid #dfecea',
+                    }}
+                  >
+                    <strong
+                      style={{
+                        display: 'block',
+                        color: '#284f49',
+                        marginBottom: '11px',
+                      }}
+                    >
+                      🔁 Origen de la siembra
+                    </strong>
+
+                    <div className="form-grid">
+                      <label>
+                        Tipo de origen
+                        <select
+                          value={formularioSiembra.tipoOrigen}
+                          onChange={(e) =>
+                            setFormularioSiembra({
+                              ...formularioSiembra,
+                              tipoOrigen: e.target.value as TipoOrigenSiembra,
+                              piscinaOrigenId: '',
+                            })
+                          }
+                        >
+                          <option value="Directa">Siembra directa</option>
+                          <option value="Precría">Desde precría</option>
+                          <option value="Madre/Hija">Madre / Hija</option>
+                        </select>
+                      </label>
+
+                      {formularioSiembra.tipoOrigen !== 'Directa' && (
+                        <label>
+                          {formularioSiembra.tipoOrigen === 'Precría'
+                            ? 'Precría de origen'
+                            : 'Piscina madre'}
+                          <select
+                            required
+                            value={formularioSiembra.piscinaOrigenId}
+                            onChange={(e) =>
+                              setFormularioSiembra({
+                                ...formularioSiembra,
+                                piscinaOrigenId: e.target.value,
+                              })
+                            }
+                          >
+                            <option value="">
+                              {formularioSiembra.tipoOrigen === 'Precría'
+                                ? 'Seleccionar precría...'
+                                : 'Seleccionar piscina madre...'}
+                            </option>
+
+                            {(formularioSiembra.tipoOrigen === 'Precría'
+                              ? piscinasPrecriaDisponibles
+                              : piscinasMadreDisponibles
+                            ).map((origen) => {
+                              const ciclo = obtenerCicloActivo(origen.id);
+
+                              return (
+                                <option key={origen.id} value={origen.id}>
+                                  {origen.nombre} — Ciclo {ciclo?.numero ?? '-'}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+
+                    {formularioSiembra.tipoOrigen !== 'Directa' &&
+                      siembraOrigenSeleccionada &&
+                      piscinaOrigenSeleccionada && (
+                        <div
+                          style={{
+                            marginTop: '14px',
+                            padding: '14px',
+                            borderRadius: '13px',
+                            background: '#ffffff',
+                            border: '1px solid #e3ecea',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns:
+                                'repeat(2, minmax(0, 1fr))',
+                              gap: '10px',
+                            }}
+                          >
+                            <DatoAutomatico
+                              titulo="🌊 Piscina origen"
+                              valor={piscinaOrigenSeleccionada.nombre}
+                            />
+                            <DatoAutomatico
+                              titulo="🔄 Ciclo"
+                              valor={`Ciclo ${cicloOrigenSeleccionado?.numero ?? '-'}`}
+                            />
+                            <DatoAutomatico
+                              titulo="📅 Siembra en origen"
+                              valor={formatearFecha(siembraOrigenSeleccionada.fecha)}
+                            />
+                            <DatoAutomatico
+                              titulo="🦐 Cantidad original"
+                              valor={`${siembraOrigenSeleccionada.cantidadSembrada.toLocaleString()} camarones`}
+                            />
+                            <DatoAutomatico
+                              titulo="⚖️ Peso de siembra en origen"
+                              valor={
+                                siembraOrigenSeleccionada.pesoInicial != null
+                                  ? `${siembraOrigenSeleccionada.pesoInicial} g`
+                                  : 'No registrado'
+                              }
+                            />
+                            <DatoAutomatico
+                              titulo="🧫 Nauplios"
+                              valor={
+                                (siembraOrigenSeleccionada.nauplios ?? []).length > 0
+                                  ? (siembraOrigenSeleccionada.nauplios ?? []).join(' • ')
+                                  : 'No registrados'
+                              }
+                            />
+                            <DatoAutomatico
+                              titulo="🧪 Laboratorios"
+                              valor={
+                                (siembraOrigenSeleccionada.laboratorios ?? []).length > 0
+                                  ? (siembraOrigenSeleccionada.laboratorios ?? []).join(' • ')
+                                  : siembraOrigenSeleccionada.procedencia || 'No registrados'
+                              }
+                            />
+                          </div>
+
+                          <div
+                            style={{
+                              marginTop: '11px',
+                              color: '#607b75',
+                              fontSize: '12px',
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            💡 Estos datos se usan únicamente como trazabilidad.
+                            La <strong>cantidad sembrada</strong> y el{' '}
+                            <strong>peso inicial</strong> de la piscina destino se
+                            ingresan nuevamente abajo porque pueden cambiar durante
+                            la transferencia.
+                          </div>
+                        </div>
+                      )}
                   </div>
                 )}
 
@@ -1438,34 +2060,37 @@ export default function Piscinas() {
                   </label>
                 </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                    gap: '14px',
-                    marginTop: '16px',
-                  }}
-                >
-                  <ListaMultiple
-                    titulo="🧫 Nauplios"
-                    placeholder="Ej. Nauplio N5..."
-                    valor={nuevoNauplio}
-                    onChange={setNuevoNauplio}
-                    onAgregar={agregarNauplio}
-                    items={formularioSiembra.nauplios}
-                    onQuitar={quitarNauplio}
-                  />
+                {(piscinaSiembra.tipo === 'Precría' ||
+                  formularioSiembra.tipoOrigen === 'Directa') && (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                      gap: '14px',
+                      marginTop: '16px',
+                    }}
+                  >
+                    <ListaMultiple
+                      titulo="🧫 Nauplios"
+                      placeholder="Ej. Nauplio N5..."
+                      valor={nuevoNauplio}
+                      onChange={setNuevoNauplio}
+                      onAgregar={agregarNauplio}
+                      items={formularioSiembra.nauplios}
+                      onQuitar={quitarNauplio}
+                    />
 
-                  <ListaMultiple
-                    titulo="🧪 Laboratorios"
-                    placeholder="Ej. Laboratorio..."
-                    valor={nuevoLaboratorio}
-                    onChange={setNuevoLaboratorio}
-                    onAgregar={agregarLaboratorio}
-                    items={formularioSiembra.laboratorios}
-                    onQuitar={quitarLaboratorio}
-                  />
-                </div>
+                    <ListaMultiple
+                      titulo="🧪 Laboratorios"
+                      placeholder="Ej. Laboratorio..."
+                      valor={nuevoLaboratorio}
+                      onChange={setNuevoLaboratorio}
+                      onAgregar={agregarLaboratorio}
+                      items={formularioSiembra.laboratorios}
+                      onQuitar={quitarLaboratorio}
+                    />
+                  </div>
+                )}
 
                 {/* CÁLCULO DENSIDAD */}
 
@@ -1584,6 +2209,288 @@ export default function Piscinas() {
           </div>
         </div>
       )}
+
+      {/* ===================================================
+          MODAL LIQUIDACIÓN PRECRÍA
+      =================================================== */}
+
+      {mostrarLiquidacionPrecria &&
+        piscinaSiembra &&
+        cicloActivoSiembra &&
+        siembraActual && (
+          <div
+            className="modal-backdrop"
+            onClick={cerrarLiquidacionPrecria}
+          >
+            <div
+              className="pool-modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: '760px' }}
+            >
+              <div className="modal-header">
+                <div>
+                  <h2>🔒 Liquidar precría</h2>
+                  <p>
+                    {piscinaSiembra.nombre} — Ciclo{' '}
+                    {cicloActivoSiembra.numero}
+                  </p>
+                </div>
+
+                <button
+                  className="modal-close"
+                  type="button"
+                  onClick={cerrarLiquidacionPrecria}
+                >
+                  ×
+                </button>
+              </div>
+
+              <form onSubmit={confirmarLiquidacionPrecria}>
+                <div
+                  style={{
+                    padding: '14px',
+                    borderRadius: '14px',
+                    background: '#f3f8f7',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns:
+                        'repeat(2, minmax(0, 1fr))',
+                      gap: '10px',
+                    }}
+                  >
+                    <DatoAutomatico
+                      titulo="🌊 Precría"
+                      valor={piscinaSiembra.nombre}
+                    />
+
+                    <DatoAutomatico
+                      titulo="🔄 Ciclo"
+                      valor={`Ciclo ${cicloActivoSiembra.numero}`}
+                    />
+
+                    <DatoAutomatico
+                      titulo="📅 Fecha de siembra"
+                      valor={formatearFecha(siembraActual.fecha)}
+                    />
+
+                    <DatoAutomatico
+                      titulo="🦐 Cantidad inicial"
+                      valor={`${siembraActual.cantidadSembrada.toLocaleString()} camarones`}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns:
+                      'repeat(2, minmax(0, 1fr))',
+                    gap: '12px',
+                  }}
+                >
+                  <InfoSiembra
+                    titulo="➡️ Total transferido"
+                    valor={`${totalTransferidoPrecria.toLocaleString()} camarones`}
+                  />
+
+                  <InfoSiembra
+                    titulo="📉 Diferencia"
+                    valor={`${diferenciaPrecria.toLocaleString()} camarones`}
+                  />
+
+                  <InfoSiembra
+                    titulo="📊 Supervivencia estimada"
+                    valor={`${supervivenciaPrecria.toFixed(2)} %`}
+                  />
+
+                  <InfoSiembra
+                    titulo="🌊 Piscinas destino"
+                    valor={`${destinosPrecria.length} registrada${
+                      destinosPrecria.length === 1 ? '' : 's'
+                    }`}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '16px',
+                    borderRadius: '14px',
+                    border: '1px solid #dfecea',
+                    background: '#f8fbfb',
+                  }}
+                >
+                  <strong
+                    style={{
+                      display: 'block',
+                      color: '#284f49',
+                      marginBottom: '10px',
+                    }}
+                  >
+                    ➡️ Transferencias / siembras destino
+                  </strong>
+
+                  {destinosPrecria.length > 0 ? (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gap: '10px',
+                      }}
+                    >
+                      {destinosPrecria.map((destino) => (
+                        <div
+                          key={`${destino.piscinaId}-${destino.ciclo}`}
+                          style={{
+                            padding: '12px 13px',
+                            borderRadius: '11px',
+                            background: '#ffffff',
+                            border: '1px solid #e3ecea',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '12px',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <div>
+                            <strong>
+                              🌊 {destino.piscinaNombre}
+                            </strong>
+
+                            <div
+                              style={{
+                                marginTop: '4px',
+                                color: '#718781',
+                                fontSize: '12px',
+                              }}
+                            >
+                              Ciclo {destino.ciclo} ·{' '}
+                              {formatearFecha(destino.fecha)}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              textAlign: 'right',
+                            }}
+                          >
+                            <strong>
+                              {destino.cantidadSembrada.toLocaleString()}{' '}
+                              camarones
+                            </strong>
+
+                            <div
+                              style={{
+                                marginTop: '4px',
+                                color: '#718781',
+                                fontSize: '12px',
+                              }}
+                            >
+                              Peso inicial:{' '}
+                              {destino.pesoInicial !== null
+                                ? `${destino.pesoInicial} g`
+                                : 'No registrado'}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        padding: '13px',
+                        borderRadius: '10px',
+                        background: '#fff8e8',
+                        color: '#8a6b25',
+                        fontSize: '13px',
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      ⚠️ No hay transferencias registradas para este ciclo.
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="form-grid"
+                  style={{ marginTop: '16px' }}
+                >
+                  <label>
+                    📅 Fecha de liquidación
+                    <input
+                      type="date"
+                      required
+                      min={siembraActual.fecha}
+                      value={fechaLiquidacionPrecria}
+                      onChange={(e) =>
+                        setFechaLiquidacionPrecria(e.target.value)
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    📝 Observación
+                    <input
+                      value={observacionLiquidacionPrecria}
+                      onChange={(e) =>
+                        setObservacionLiquidacionPrecria(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Opcional"
+                    />
+                  </label>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '14px',
+                    borderRadius: '12px',
+                    background: '#eef8f6',
+                    color: '#58716c',
+                    fontSize: '13px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  💡 Al confirmar, el{' '}
+                  <strong>
+                    Ciclo {cicloActivoSiembra.numero}
+                  </strong>{' '}
+                  quedará guardado como finalizado. La precría{' '}
+                  <strong>{piscinaSiembra.nombre}</strong> pasará a{' '}
+                  <strong>Disponible</strong> y la próxima siembra
+                  iniciará automáticamente el{' '}
+                  <strong>
+                    Ciclo {cicloActivoSiembra.numero + 1}
+                  </strong>
+                  .
+                </div>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={cerrarLiquidacionPrecria}
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="primary-button"
+                  >
+                    🔒 Confirmar liquidación
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
     </div>
   );
 }
