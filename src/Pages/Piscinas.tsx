@@ -1639,118 +1639,238 @@ function ListaMultiple({
   items: string[];
   onQuitar: (indice: number) => void;
 }) {
+  const esNauplio = titulo.toLowerCase().includes('nauplio');
+
+  const colorPrincipal = esNauplio ? '#4f86f7' : '#35b98a';
+  const colorSuave = esNauplio ? '#eef5ff' : '#eefaf6';
+  const colorBorde = esNauplio ? '#d9e7ff' : '#d8f0e7';
+
   return (
     <div
       style={{
-        padding: '14px',
-        border: '1px solid #dfe9e7',
-        borderRadius: '12px',
-        background: '#f8fbfa',
+        padding: '18px',
+        borderRadius: '18px',
+        background: '#ffffff',
+        border: `1px solid ${colorBorde}`,
+        boxShadow: '0 8px 24px rgba(31, 78, 68, 0.06)',
       }}
     >
-      <strong
-        style={{
-          display: 'block',
-          marginBottom: '8px',
-          color: '#294b45',
-        }}
-      >
-        {titulo}
-      </strong>
-
+      {/* CABECERA */}
       <div
         style={{
           display: 'flex',
-          gap: '8px',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          marginBottom: '16px',
+          flexWrap: 'wrap',
         }}
       >
-        <input
-          value={valor}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              onAgregar();
-            }
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
           }}
-          placeholder={placeholder}
+        >
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: colorSuave,
+              fontSize: '21px',
+            }}
+          >
+            {esNauplio ? '🦐' : '🧪'}
+          </div>
+
+          <strong
+            style={{
+              fontSize: '16px',
+              color: '#284b45',
+            }}
+          >
+            {esNauplio ? 'Nauplios' : 'Laboratorios'}
+          </strong>
+        </div>
+
+        <div
+          style={{
+            padding: '7px 11px',
+            borderRadius: '10px',
+            background: colorSuave,
+            color: colorPrincipal,
+            fontSize: '11px',
+            fontWeight: 700,
+          }}
+        >
+          ⓘ Puedes agregar varios
+        </div>
+      </div>
+
+      {/* INPUT + BOTÓN */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+        }}
+      >
+        <div
           style={{
             flex: 1,
             minWidth: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '9px',
+            padding: '0 14px',
+            height: '46px',
+            borderRadius: '13px',
+            background: '#f8fafb',
+            border: '1px solid #e4ebe9',
+            transition: 'all 0.2s ease',
           }}
-        />
+        >
+          <span
+            style={{
+              fontSize: '17px',
+              opacity: 0.8,
+              flexShrink: 0,
+            }}
+          >
+            {esNauplio ? '🦐' : '🏢'}
+          </span>
+
+          <input
+            type="text"
+            value={valor}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                onAgregar();
+              }
+            }}
+            placeholder={placeholder}
+            style={{
+              width: '100%',
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              color: '#334b47',
+              fontSize: '14px',
+              fontFamily: 'inherit',
+              padding: 0,
+              boxShadow: 'none',
+            }}
+          />
+        </div>
 
         <button
           type="button"
-          className="secondary-button"
           onClick={onAgregar}
           style={{
+            height: '46px',
+            padding: '0 18px',
+            border: 'none',
+            borderRadius: '13px',
+            background: colorPrincipal,
+            color: '#ffffff',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
             whiteSpace: 'nowrap',
+            boxShadow: esNauplio
+              ? '0 7px 16px rgba(79, 134, 247, 0.20)'
+              : '0 7px 16px rgba(53, 185, 138, 0.20)',
+            transition: 'transform 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-1px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
           }}
         >
           ＋ Agregar
         </button>
       </div>
 
+      {/* ELEMENTOS AGREGADOS */}
       {items.length > 0 ? (
         <div
           style={{
             display: 'flex',
             flexWrap: 'wrap',
             gap: '8px',
-            marginTop: '10px',
+            marginTop: '14px',
           }}
         >
           {items.map((item, indice) => (
-            <span
+            <div
               key={`${item}-${indice}`}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '7px',
-                padding: '7px 10px',
+                gap: '8px',
+                padding: '7px 8px 7px 11px',
                 borderRadius: '999px',
-                background: '#e8f5f2',
-                color: '#315f57',
-                fontSize: '13px',
-                border: '1px solid #d2ebe5',
+                background: colorSuave,
+                border: `1px solid ${colorBorde}`,
+                color: '#385852',
+                fontSize: '12px',
+                fontWeight: 600,
               }}
             >
-              {item}
+              <span>
+                {esNauplio ? '🦐' : '🧪'} {item}
+              </span>
 
               <button
                 type="button"
                 onClick={() => onQuitar(indice)}
-                title={`Quitar ${item}`}
+                title={`Eliminar ${item}`}
                 style={{
-                  border: 0,
-                  background: 'transparent',
+                  width: '21px',
+                  height: '21px',
+                  borderRadius: '50%',
+                  border: 'none',
+                  background: '#ffffff',
+                  color: '#738783',
                   cursor: 'pointer',
-                  padding: 0,
-                  color: '#6f7f7b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '14px',
                   fontWeight: 700,
+                  padding: 0,
                 }}
               >
                 ×
               </button>
-            </span>
+            </div>
           ))}
         </div>
       ) : (
-        <small
+        <div
           style={{
-            display: 'block',
-            marginTop: '9px',
-            color: '#80908c',
+            marginTop: '11px',
+            color: '#8a9b97',
+            fontSize: '11px',
           }}
         >
-          Puedes agregar uno o varios.
-        </small>
+          {esNauplio
+            ? '🦐 Aún no has agregado nauplios.'
+            : '🧪 Aún no has agregado laboratorios.'}
+        </div>
       )}
     </div>
   );
 }
-
 /* =========================================================
    INFO SIEMBRA
 ========================================================= */

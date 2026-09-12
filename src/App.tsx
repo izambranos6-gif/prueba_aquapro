@@ -132,8 +132,12 @@ function App() {
       <aside className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`}>
         <div className="brand">
           <div className="brand-icon">
-            <Fish size={50} strokeWidth={1.7} />
-          </div>
+  <img
+  src={`${import.meta.env.BASE_URL}camaron.png`}
+  alt="Camarón AquaPro"
+  className="shrimp-logo"
+/>
+</div>
 
           <div className="brand-name">
             Aqua<span>Pro</span>

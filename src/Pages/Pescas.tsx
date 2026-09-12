@@ -7,6 +7,7 @@ import {
   Search,
   Trash2,
   Pencil,
+  Eye,
   Lock,
   X,
   Moon,
@@ -22,7 +23,7 @@ import {
 
 type TipoSalida = 'Raleo' | 'Pesca' | 'Venta local';
 
-const PESCAS_STORAGE_KEY = 'aquapro-pescas-v1';
+const PESCAS_STORAGE_KEY = 'aquapro-pescas-v2';
 
 type EstadoRegistro = 'Finalizado' | 'En proceso' | 'Programada';
 
@@ -65,66 +66,7 @@ type RegistroPesca = {
    DATOS DE PRUEBA
 ========================================================= */
 
-const datosIniciales: RegistroPesca[] = [
-  {
-    id: 1,
-    piscina: 'IS063',
-    cicloActual: 3,
-    tipo: 'Raleo',
-    fecha: '2026-08-18',
-    libras: 8500,
-    estado: 'Finalizado',
-    observacion: 'Primer raleo del ciclo',
-  },
-
-  {
-    id: 2,
-    piscina: 'IS045',
-    cicloActual: 4,
-    tipo: 'Pesca',
-    fecha: '2026-09-02',
-    libras: 65400,
-    estado: 'Finalizado',
-
-    noches: [
-      {
-        id: 1,
-        numero: 1,
-        fecha: '2026-09-02',
-        libras: 34500,
-      },
-      {
-        id: 2,
-        numero: 2,
-        fecha: '2026-09-03',
-        libras: 30900,
-      },
-    ],
-  },
-
-  {
-    id: 3,
-    piscina: 'IS029',
-    cicloActual: 5,
-    tipo: 'Venta local',
-    fecha: '2026-08-25',
-    libras: 450,
-    estado: 'Finalizado',
-    comprador: 'Cliente local',
-    precioLibra: 2.25,
-  },
-
-  {
-    id: 4,
-    piscina: 'IS098',
-    cicloActual: 6,
-    tipo: 'Pesca',
-    fecha: '2026-09-10',
-    libras: 0,
-    estado: 'Programada',
-    noches: [],
-  },
-];
+const datosIniciales: RegistroPesca[] = [];
 
 export default function Pescas() {
   const { piscinas } = useAquaProStore();
@@ -205,6 +147,19 @@ export default function Pescas() {
   const [registroEditando, setRegistroEditando] =
     useState<RegistroPesca | null>(null);
 
+  const [detalleCiclo, setDetalleCiclo] = useState<{
+    piscina: string;
+    piscinaId?: number;
+    cicloActual: number;
+  } | null>(null);
+
+  const [contextoMovimiento, setContextoMovimiento] = useState<{
+    piscina: string;
+    piscinaId?: number;
+    cicloId?: number;
+    cicloActual: number;
+  } | null>(null);
+
   /* =======================================================
      FORMULARIO
   ======================================================= */
@@ -242,11 +197,16 @@ export default function Pescas() {
   );
 
   const cicloActual =
-    piscinaSeleccionada?.cicloActual ?? registroEditando?.cicloActual ?? null;
+    contextoMovimiento?.cicloActual ??
+    piscinaSeleccionada?.cicloActual ??
+    registroEditando?.cicloActual ??
+    null;
 
-  const cicloId = piscinaSeleccionada?.cicloId ?? null;
+  const cicloId =
+    contextoMovimiento?.cicloId ?? piscinaSeleccionada?.cicloId ?? null;
 
-  const piscinaId = piscinaSeleccionada?.id ?? null;
+  const piscinaId =
+    contextoMovimiento?.piscinaId ?? piscinaSeleccionada?.id ?? null;
 
   /* =======================================================
      FILTRAR REGISTROS
@@ -294,6 +254,102 @@ export default function Pescas() {
     filtroFechaHasta,
   ]);
 
+
+  const ciclosFiltrados = useMemo(() => {
+    const clavesVisibles = new Set(
+      registrosFiltrados.map(
+        (registro) => `${registro.piscina}__${registro.cicloActual}`
+      )
+    );
+
+    const grupos = new Map<
+      string,
+      {
+        piscina: string;
+        piscinaId?: number;
+        cicloActual: number;
+        registros: RegistroPesca[];
+      }
+    >();
+
+    registros.forEach((registro) => {
+      const clave = `${registro.piscina}__${registro.cicloActual}`;
+
+      if (!clavesVisibles.has(clave)) return;
+
+      const existente = grupos.get(clave);
+
+      if (existente) {
+        existente.registros.push(registro);
+      } else {
+        grupos.set(clave, {
+          piscina: registro.piscina,
+          piscinaId: registro.piscinaId,
+          cicloActual: registro.cicloActual,
+          registros: [registro],
+        });
+      }
+    });
+
+    return Array.from(grupos.values())
+      .map((grupo) => {
+        const ordenados = [...grupo.registros].sort((a, b) => {
+          const fechaA =
+            a.tipo === 'Pesca' && a.noches && a.noches.length > 0
+              ? [...a.noches]
+                  .filter((noche) => noche.fecha)
+                  .sort((x, y) => x.fecha.localeCompare(y.fecha))[0]?.fecha ||
+                a.fecha
+              : a.fecha;
+
+          const fechaB =
+            b.tipo === 'Pesca' && b.noches && b.noches.length > 0
+              ? [...b.noches]
+                  .filter((noche) => noche.fecha)
+                  .sort((x, y) => x.fecha.localeCompare(y.fecha))[0]?.fecha ||
+                b.fecha
+              : b.fecha;
+
+          const cmp = fechaA.localeCompare(fechaB);
+          return cmp !== 0 ? cmp : a.id - b.id;
+        });
+
+        const pescaFinal = [...ordenados]
+          .reverse()
+          .find(
+            (registro) =>
+              registro.tipo === 'Pesca' && registro.estado === 'Finalizado'
+          );
+
+        return {
+          ...grupo,
+          registros: ordenados,
+          primeraFecha: ordenados[0]?.fecha || '',
+          ultimaFecha: ordenados.at(-1)?.fecha || '',
+          totalLibras: ordenados.reduce(
+            (total, registro) => total + registro.libras,
+            0
+          ),
+          pescaFinal,
+          cicloCerrado: ordenados.some((registro) => registro.cosechaCerrada),
+        };
+      })
+      .sort((a, b) => b.ultimaFecha.localeCompare(a.ultimaFecha));
+  }, [registros, registrosFiltrados]);
+
+  const piscinasSinRegistro = useMemo(
+    () =>
+      piscinasDisponibles.filter(
+        (piscinaDisponible) =>
+          !registros.some(
+            (registro) =>
+              registro.piscina === piscinaDisponible.nombre &&
+              registro.cicloActual === piscinaDisponible.cicloActual
+          )
+      ),
+    [piscinasDisponibles, registros]
+  );
+
   /* =======================================================
      TOTALES
   ======================================================= */
@@ -317,7 +373,15 @@ export default function Pescas() {
   ======================================================= */
 
   function abrirNuevoRegistro() {
+    if (piscinasSinRegistro.length === 0) {
+      alert(
+        'Las piscinas con ciclo activo ya tienen un registro de movimientos. Entra en 👁 Detalle y usa “Agregar movimiento”.'
+      );
+      return;
+    }
+
     limpiarFormulario();
+    setContextoMovimiento(null);
     setModalAbierto(true);
   }
 
@@ -351,6 +415,7 @@ export default function Pescas() {
 
   function cerrarModal() {
     setModalAbierto(false);
+    setContextoMovimiento(null);
     limpiarFormulario();
   }
 
@@ -565,6 +630,7 @@ export default function Pescas() {
   ======================================================= */
 
   function editarRegistro(registro: RegistroPesca) {
+    setContextoMovimiento(null);
     setRegistroEditando(registro);
 
     setTipo(registro.tipo);
@@ -594,6 +660,120 @@ export default function Pescas() {
     setPescaFinalizada(registro.estado === 'Finalizado');
 
     setModalAbierto(true);
+  }
+
+  /* =======================================================
+     DETALLE COMPLETO DEL CICLO
+  ======================================================= */
+
+  function abrirDetalleCiclo(registro: RegistroPesca) {
+    setDetalleCiclo({
+      piscina: registro.piscina,
+      piscinaId: registro.piscinaId,
+      cicloActual: registro.cicloActual,
+    });
+  }
+
+  function cerrarDetalleCiclo() {
+    setDetalleCiclo(null);
+  }
+
+  function agregarMovimientoAlCiclo() {
+    if (!detalleCiclo) return;
+
+    const piscinaDetalle = piscinasDisponibles.find(
+      (item) =>
+        item.nombre === detalleCiclo.piscina &&
+        item.cicloActual === detalleCiclo.cicloActual
+    );
+
+    if (!piscinaDetalle) {
+      alert(
+        'Este ciclo ya no está activo. No se pueden agregar nuevos movimientos.'
+      );
+      return;
+    }
+
+    limpiarFormulario();
+    setPiscina(detalleCiclo.piscina);
+    setContextoMovimiento({
+      piscina: detalleCiclo.piscina,
+      piscinaId: piscinaDetalle.id,
+      cicloId: piscinaDetalle.cicloId,
+      cicloActual: detalleCiclo.cicloActual,
+    });
+    setDetalleCiclo(null);
+    setModalAbierto(true);
+  }
+
+  function fechaBonita(fechaValor?: string | null) {
+    if (!fechaValor) return 'No registrada';
+
+    const [anio, mes, dia] = fechaValor.split('-');
+
+    if (!anio || !mes || !dia) return fechaValor;
+
+    return `${dia}/${mes}/${anio}`;
+  }
+
+  function movimientosDelCiclo(piscinaNombre: string, numeroCiclo: number) {
+    const movimientos = registros.filter(
+      (registro) =>
+        registro.piscina === piscinaNombre &&
+        registro.cicloActual === numeroCiclo
+    );
+
+    const raleosOrdenados = movimientos
+      .filter((registro) => registro.tipo === 'Raleo')
+      .sort((a, b) => {
+        const fechaComparacion = a.fecha.localeCompare(b.fecha);
+
+        if (fechaComparacion !== 0) return fechaComparacion;
+
+        return a.id - b.id;
+      });
+
+    const numeroRaleo = new Map<number, number>();
+
+    raleosOrdenados.forEach((registro, indice) => {
+      numeroRaleo.set(registro.id, indice + 1);
+    });
+
+    return movimientos
+      .map((registro) => ({
+        registro,
+        numeroRaleo:
+          registro.tipo === 'Raleo'
+            ? numeroRaleo.get(registro.id) ?? 1
+            : null,
+      }))
+      .sort((a, b) => {
+        const fechaA =
+          a.registro.tipo === 'Pesca' &&
+          a.registro.noches &&
+          a.registro.noches.length > 0
+            ? [...a.registro.noches]
+                .filter((noche) => noche.fecha)
+                .sort((x, y) => x.fecha.localeCompare(y.fecha))[0]?.fecha ||
+              a.registro.fecha
+            : a.registro.fecha;
+
+        const fechaB =
+          b.registro.tipo === 'Pesca' &&
+          b.registro.noches &&
+          b.registro.noches.length > 0
+            ? [...b.registro.noches]
+                .filter((noche) => noche.fecha)
+                .sort((x, y) => x.fecha.localeCompare(y.fecha))[0]?.fecha ||
+              b.registro.fecha
+            : b.registro.fecha;
+
+        const fechaComparacion = fechaA.localeCompare(fechaB);
+
+        if (fechaComparacion !== 0) return fechaComparacion;
+
+        return a.registro.id - b.registro.id;
+      });
   }
 
   /* =======================================================
@@ -883,117 +1063,137 @@ export default function Pescas() {
             </thead>
 
             <tbody>
-              {registrosFiltrados.map((registro) => (
-                <tr key={registro.id}>
-                  <td>{registro.fecha || '-'}</td>
+              {ciclosFiltrados.map((grupo) => {
+                const tipos = Array.from(
+                  new Set(grupo.registros.map((registro) => registro.tipo))
+                );
 
-                  <td>
-                    <strong>{registro.piscina}</strong>
-                  </td>
+                const ultimoRegistro = grupo.registros.at(-1);
 
-                  <td>
-                    <strong>Ciclo {registro.cicloActual}</strong>
-                  </td>
+                return (
+                  <tr key={`${grupo.piscina}-${grupo.cicloActual}`}>
+                    <td>
+                      {grupo.primeraFecha === grupo.ultimaFecha
+                        ? grupo.primeraFecha || '-'
+                        : `${grupo.primeraFecha} → ${grupo.ultimaFecha}`}
+                    </td>
 
-                  <td>
-                    <span
-                      className={`harvest-type harvest-${registro.tipo
-                        .toLowerCase()
-                        .replace(' ', '-')}`}
-                    >
-                      {registro.tipo}
-                    </span>
-                  </td>
+                    <td>
+                      <strong>{grupo.piscina}</strong>
+                    </td>
 
-                  <td>
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '3px',
-                      }}
-                    >
-                      <span>
-                        {registro.tipo === 'Pesca'
-                          ? `${registro.noches?.length || 0} noche(s)`
-                          : registro.tipo === 'Venta local'
-                          ? registro.comprador || 'Venta local'
-                          : registro.observacion || 'Raleo'}
-                      </span>
+                    <td>
+                      <strong>Ciclo {grupo.cicloActual}</strong>
+                    </td>
 
-                      {registro.tipo === 'Raleo' &&
-                        registro.pesoInicial &&
-                        registro.pesoFinal && (
-                          <small>
-                            ⚖️ {registro.pesoInicial} g → {registro.pesoFinal} g
-                          </small>
-                        )}
-
-                      {registro.tipo === 'Venta local' &&
-                        registro.pesoVentaLocal && (
-                          <small>⚖️ {registro.pesoVentaLocal} g</small>
-                        )}
-                    </div>
-                  </td>
-
-                  <td>
-                    <strong>{registro.libras.toLocaleString()} lb</strong>
-                  </td>
-
-                  <td>
-                    <span
-                      className={`harvest-status status-${registro.estado
-                        .toLowerCase()
-                        .replace(' ', '-')}`}
-                    >
-                      {registro.estado}
-                    </span>
-
-                    {registro.cosechaCerrada && (
+                    <td>
                       <div
                         style={{
-                          marginTop: '6px',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          color: '#64748b',
+                          display: 'flex',
+                          gap: '5px',
+                          flexWrap: 'wrap',
                         }}
                       >
-                        🔒 Ciclo cerrado
+                        {tipos.map((tipoGrupo) => (
+                          <span
+                            key={tipoGrupo}
+                            className={`harvest-type harvest-${tipoGrupo
+                              .toLowerCase()
+                              .replace(' ', '-')}`}
+                          >
+                            {tipoGrupo}
+                          </span>
+                        ))}
                       </div>
-                    )}
-                  </td>
+                    </td>
 
-                  <td>
-                    <div className="table-actions">
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => editarRegistro(registro)}
-                        title="Editar"
-                        aria-label="Editar registro"
+                    <td>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '3px',
+                        }}
                       >
-                        <Pencil size={16} />
-                      </button>
+                        <strong>
+                          {grupo.registros.length} movimiento(s) del ciclo
+                        </strong>
+                        <small style={{ color: '#7b8d91' }}>
+                          👁 Ver detalle para revisar Raleo 1, Raleo 2, noches de
+                          pesca y ventas locales
+                        </small>
+                      </div>
+                    </td>
 
-                      {registro.tipo === 'Pesca' &&
-                        registro.estado === 'Finalizado' && (
+                    <td>
+                      <strong>{grupo.totalLibras.toLocaleString()} lb</strong>
+                    </td>
+
+                    <td>
+                      <span
+                        className={`harvest-status status-${(
+                          grupo.cicloCerrado
+                            ? 'Finalizado'
+                            : ultimoRegistro?.estado || 'En proceso'
+                        )
+                          .toLowerCase()
+                          .replace(' ', '-')}`}
+                      >
+                        {grupo.cicloCerrado
+                          ? 'Finalizado'
+                          : ultimoRegistro?.estado || 'En proceso'}
+                      </span>
+
+                      {grupo.cicloCerrado && (
+                        <div
+                          style={{
+                            marginTop: '6px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#64748b',
+                          }}
+                        >
+                          🔒 Ciclo cerrado
+                        </div>
+                      )}
+                    </td>
+
+                    <td>
+                      <div className="table-actions">
+                        <button
+                          type="button"
+                          className="icon-button"
+                          onClick={() =>
+                            abrirDetalleCiclo(grupo.registros[0])
+                          }
+                          title="Ver detalle del ciclo"
+                          aria-label="Ver detalle del ciclo"
+                          style={{
+                            color: '#0f8f83',
+                            background: '#eefaf8',
+                          }}
+                        >
+                          <Eye size={17} />
+                        </button>
+
+                        {grupo.pescaFinal && (
                           <button
                             type="button"
                             className="icon-button"
-                            onClick={() => cerrarCosecha(registro)}
+                            onClick={() => cerrarCosecha(grupo.pescaFinal!)}
                             title={
-                              registro.cosechaCerrada
+                              grupo.pescaFinal.cosechaCerrada
                                 ? 'Cosecha liquidada'
                                 : 'Liquidar cosecha'
                             }
                             aria-label={
-                              registro.cosechaCerrada
+                              grupo.pescaFinal.cosechaCerrada
                                 ? 'Cosecha liquidada'
                                 : 'Liquidar cosecha'
                             }
-                            disabled={registro.cosechaCerrada}
+                            disabled={grupo.pescaFinal.cosechaCerrada}
                             style={
-                              registro.cosechaCerrada
+                              grupo.pescaFinal.cosechaCerrada
                                 ? {
                                     opacity: 0.45,
                                     cursor: 'not-allowed',
@@ -1004,12 +1204,13 @@ export default function Pescas() {
                             <Lock size={16} />
                           </button>
                         )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
-              {registrosFiltrados.length === 0 && (
+              {ciclosFiltrados.length === 0 && (
                 <tr>
                   <td colSpan={8} className="empty-table">
                     No existen registros con esos filtros.
@@ -1020,6 +1221,554 @@ export default function Pescas() {
           </table>
         </div>
       </section>
+
+      {/* ===============================================
+          DETALLE DEL CICLO
+      =============================================== */}
+
+      {detalleCiclo && (() => {
+        const piscinaDetalle = piscinas.find(
+          (item) =>
+            item.nombre === detalleCiclo.piscina ||
+            (detalleCiclo.piscinaId !== undefined &&
+              item.id === detalleCiclo.piscinaId)
+        );
+
+        const cicloDetalle = piscinaDetalle
+          ? obtenerCicloActivo(piscinaDetalle.id)
+          : null;
+
+        const siembraDetalle =
+          cicloDetalle?.numero === detalleCiclo.cicloActual
+            ? cicloDetalle.siembra
+            : null;
+
+        const movimientos = movimientosDelCiclo(
+          detalleCiclo.piscina,
+          detalleCiclo.cicloActual
+        );
+
+        const totalRaleoCiclo = movimientos
+          .filter(({ registro }) => registro.tipo === 'Raleo')
+          .reduce((total, { registro }) => total + registro.libras, 0);
+
+        const totalPescaCiclo = movimientos
+          .filter(({ registro }) => registro.tipo === 'Pesca')
+          .reduce((total, { registro }) => total + registro.libras, 0);
+
+        const totalVentaLocalCiclo = movimientos
+          .filter(({ registro }) => registro.tipo === 'Venta local')
+          .reduce((total, { registro }) => total + registro.libras, 0);
+
+        const produccionCiclo =
+          totalRaleoCiclo + totalPescaCiclo + totalVentaLocalCiclo;
+
+        return (
+          <div className="modal-backdrop" onClick={cerrarDetalleCiclo}>
+            <div
+              className="pool-modal harvest-modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: '900px',
+                width: 'min(94vw, 900px)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+              }}
+            >
+              <div className="modal-header">
+                <div>
+                  <p
+                    style={{
+                      margin: '0 0 5px',
+                      color: '#0f8f83',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '.08em',
+                    }}
+                  >
+                    Historial productivo
+                  </p>
+
+                  <h2 style={{ marginBottom: '5px' }}>
+                    🌊 {detalleCiclo.piscina}
+                  </h2>
+
+                  <p style={{ margin: 0 }}>
+                    🔄 Ciclo {detalleCiclo.cicloActual}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={cerrarDetalleCiclo}
+                  aria-label="Cerrar detalle"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: '12px',
+                  marginTop: '18px',
+                }}
+              >
+                <DetalleDato
+                  emoji="🌱"
+                  titulo="Fecha de siembra"
+                  valor={fechaBonita(siembraDetalle?.fecha)}
+                />
+
+                <DetalleDato
+                  emoji="🦐"
+                  titulo="Cantidad sembrada"
+                  valor={
+                    siembraDetalle
+                      ? siembraDetalle.cantidadSembrada.toLocaleString()
+                      : 'No disponible'
+                  }
+                />
+
+                <DetalleDato
+                  emoji="⚖️"
+                  titulo="Peso inicial"
+                  valor={
+                    siembraDetalle?.pesoInicial != null
+                      ? `${siembraDetalle.pesoInicial} g`
+                      : 'No disponible'
+                  }
+                />
+
+                <DetalleDato
+                  emoji="📦"
+                  titulo="Producción acumulada"
+                  valor={`${produccionCiclo.toLocaleString()} lb`}
+                  destacado
+                />
+              </div>
+
+              <div
+                style={{
+                  marginTop: '22px',
+                  padding: '16px',
+                  borderRadius: '16px',
+                  background: '#f7fbfa',
+                  border: '1px solid #e2eeeb',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                    gap: '10px',
+                  }}
+                >
+                  <ResumenMovimiento
+                    titulo="🌊 Raleos"
+                    valor={`${totalRaleoCiclo.toLocaleString()} lb`}
+                  />
+
+                  <ResumenMovimiento
+                    titulo="🎣 Pescas"
+                    valor={`${totalPescaCiclo.toLocaleString()} lb`}
+                  />
+
+                  <ResumenMovimiento
+                    titulo="🏪 Venta local"
+                    valor={`${totalVentaLocalCiclo.toLocaleString()} lb`}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: '25px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    marginBottom: '14px',
+                  }}
+                >
+                  <div>
+                    <h3
+                      style={{
+                        margin: 0,
+                        color: '#173f47',
+                        fontSize: '17px',
+                      }}
+                    >
+                      Movimientos del ciclo
+                    </h3>
+
+                    <p
+                      style={{
+                        margin: '4px 0 0',
+                        color: '#7b8d91',
+                        fontSize: '12px',
+                      }}
+                    >
+                      Ordenados automáticamente por fecha.
+                    </p>
+                  </div>
+
+                  <span
+                    style={{
+                      padding: '7px 11px',
+                      borderRadius: '999px',
+                      background: '#edf8f6',
+                      color: '#0f8f83',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {movimientos.length} movimiento(s)
+                  </span>
+                </div>
+
+                {movimientos.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '28px',
+                      textAlign: 'center',
+                      borderRadius: '16px',
+                      background: '#f8fafb',
+                      color: '#7c8c91',
+                    }}
+                  >
+                    Todavía no existen movimientos en este ciclo.
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                    }}
+                  >
+                    {movimientos.map(({ registro, numeroRaleo }) => (
+                      <div
+                        key={registro.id}
+                        style={{
+                          border: '1px solid #e2ecea',
+                          borderRadius: '16px',
+                          padding: '16px',
+                          background: '#ffffff',
+                          boxShadow: '0 6px 18px rgba(28, 78, 70, 0.05)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <div>
+                            <span
+                              style={{
+                                display: 'block',
+                                color: '#82918f',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                marginBottom: '5px',
+                              }}
+                            >
+                              📅 {fechaBonita(registro.fecha)}
+                            </span>
+
+                            <strong
+                              style={{
+                                color: '#173f47',
+                                fontSize: '16px',
+                              }}
+                            >
+                              {registro.tipo === 'Raleo'
+                                ? `🌊 Raleo ${numeroRaleo}`
+                                : registro.tipo === 'Pesca'
+                                ? '🎣 Pesca'
+                                : '🏪 Venta local'}
+                            </strong>
+                          </div>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="icon-button"
+                              onClick={() => {
+                                cerrarDetalleCiclo();
+                                editarRegistro(registro);
+                              }}
+                              title="Editar este movimiento"
+                              aria-label="Editar este movimiento"
+                            >
+                              <Pencil size={15} />
+                            </button>
+
+                            <strong
+                            style={{
+                              padding: '7px 11px',
+                              borderRadius: '10px',
+                              background: '#eef9f7',
+                              color: '#0f8f83',
+                              fontSize: '14px',
+                            }}
+                          >
+                            {registro.libras.toLocaleString()} lb
+                            </strong>
+                          </div>
+                        </div>
+
+                        {registro.tipo === 'Raleo' && (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns:
+                                'repeat(auto-fit, minmax(150px, 1fr))',
+                              gap: '10px',
+                              marginTop: '13px',
+                            }}
+                          >
+                            <MovimientoDato
+                              titulo="Peso inicial"
+                              valor={
+                                registro.pesoInicial != null
+                                  ? `${registro.pesoInicial} g`
+                                  : 'No registrado'
+                              }
+                            />
+
+                            <MovimientoDato
+                              titulo="Peso final"
+                              valor={
+                                registro.pesoFinal != null
+                                  ? `${registro.pesoFinal} g`
+                                  : 'No registrado'
+                              }
+                            />
+                          </div>
+                        )}
+
+                        {registro.tipo === 'Pesca' && (
+                          <div
+                            style={{
+                              marginTop: '14px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '9px',
+                            }}
+                          >
+                            {registro.noches && registro.noches.length > 0 ? (
+                              [...registro.noches]
+                                .sort((a, b) => {
+                                  const fechaComparacion =
+                                    a.fecha.localeCompare(b.fecha);
+
+                                  if (fechaComparacion !== 0) {
+                                    return fechaComparacion;
+                                  }
+
+                                  return a.numero - b.numero;
+                                })
+                                .map((noche, indice) => (
+                                  <div
+                                    key={noche.id}
+                                    style={{
+                                      display: 'grid',
+                                      gridTemplateColumns:
+                                        'minmax(130px, 1fr) minmax(100px, auto)',
+                                      gap: '10px',
+                                      padding: '11px 13px',
+                                      borderRadius: '12px',
+                                      background: '#f8fafb',
+                                      border: '1px solid #edf1f2',
+                                    }}
+                                  >
+                                    <div>
+                                      <strong
+                                        style={{
+                                          color: '#35545a',
+                                          fontSize: '13px',
+                                        }}
+                                      >
+                                        🌙 {numeroNoche(indice + 1)}
+                                      </strong>
+
+                                      <div
+                                        style={{
+                                          marginTop: '3px',
+                                          color: '#849397',
+                                          fontSize: '11px',
+                                        }}
+                                      >
+                                        {fechaBonita(noche.fecha)}
+                                      </div>
+
+                                      {(noche.pesoInicial != null ||
+                                        noche.pesoFinal != null) && (
+                                        <div
+                                          style={{
+                                            marginTop: '5px',
+                                            color: '#61767a',
+                                            fontSize: '11px',
+                                          }}
+                                        >
+                                          ⚖️ Inicial:{' '}
+                                          {noche.pesoInicial != null
+                                            ? `${noche.pesoInicial} g`
+                                            : '—'}{' '}
+                                          → Final:{' '}
+                                          {noche.pesoFinal != null
+                                            ? `${noche.pesoFinal} g`
+                                            : '—'}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <strong
+                                      style={{
+                                        color: '#173f47',
+                                        alignSelf: 'center',
+                                      }}
+                                    >
+                                      {noche.libras.toLocaleString()} lb
+                                    </strong>
+                                  </div>
+                                ))
+                            ) : (
+                              <div
+                                style={{
+                                  padding: '11px 13px',
+                                  borderRadius: '12px',
+                                  background: '#fff8e8',
+                                  color: '#8b6a24',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                📅 Pesca programada para{' '}
+                                {fechaBonita(registro.fecha)}
+                              </div>
+                            )}
+
+                            {registro.noches && registro.noches.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  gap: '10px',
+                                  paddingTop: '5px',
+                                  color: '#173f47',
+                                }}
+                              >
+                                <strong>Total pesca</strong>
+                                <strong>
+                                  {registro.libras.toLocaleString()} lb
+                                </strong>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {registro.tipo === 'Venta local' && (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns:
+                                'repeat(auto-fit, minmax(150px, 1fr))',
+                              gap: '10px',
+                              marginTop: '13px',
+                            }}
+                          >
+                            <MovimientoDato
+                              titulo="Peso del camarón"
+                              valor={
+                                registro.pesoVentaLocal != null
+                                  ? `${registro.pesoVentaLocal} g`
+                                  : 'No registrado'
+                              }
+                            />
+
+                            <MovimientoDato
+                              titulo="Comprador"
+                              valor={registro.comprador || 'No registrado'}
+                            />
+
+                            <MovimientoDato
+                              titulo="Precio por libra"
+                              valor={
+                                registro.precioLibra != null &&
+                                registro.precioLibra > 0
+                                  ? `$${registro.precioLibra.toFixed(2)}`
+                                  : 'No registrado'
+                              }
+                            />
+                          </div>
+                        )}
+
+                        {registro.observacion && (
+                          <div
+                            style={{
+                              marginTop: '12px',
+                              padding: '10px 12px',
+                              borderRadius: '11px',
+                              background: '#f7f9fa',
+                              color: '#65777b',
+                              fontSize: '12px',
+                            }}
+                          >
+                            📝 {registro.observacion}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div
+                className="modal-actions"
+                style={{
+                  marginTop: '22px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={cerrarDetalleCiclo}
+                >
+                  Cerrar detalle
+                </button>
+
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={agregarMovimientoAlCiclo}
+                >
+                  <Plus size={17} />
+                  Agregar movimiento
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ===============================================
           MODAL
@@ -1034,7 +1783,11 @@ export default function Pescas() {
             <div className="modal-header">
               <div>
                 <h2>
-                  {registroEditando ? 'Editar registro' : 'Nuevo registro'}
+                  {registroEditando
+                    ? 'Editar movimiento'
+                    : contextoMovimiento
+                    ? 'Agregar movimiento'
+                    : 'Nuevo registro'}
                 </h2>
 
                 <p>Registra una salida de producción.</p>
@@ -1092,10 +1845,14 @@ export default function Pescas() {
                 <select
                   value={piscina}
                   onChange={(e) => setPiscina(e.target.value)}
+                  disabled={Boolean(contextoMovimiento || registroEditando)}
                 >
                   <option value="">Selecciona una piscina</option>
 
-                  {piscinasDisponibles.map((piscinaDisponible) => (
+                  {(contextoMovimiento || registroEditando
+                    ? piscinasDisponibles
+                    : piscinasSinRegistro
+                  ).map((piscinaDisponible) => (
                     <option
                       key={piscinaDisponible.nombre}
                       value={piscinaDisponible.nombre}
@@ -1132,7 +1889,9 @@ export default function Pescas() {
                   fontSize: '13px',
                 }}
               >
-                Este registro se guardará automáticamente en{' '}
+                {contextoMovimiento
+                  ? 'Este movimiento se agregará al historial de '
+                  : 'Este registro iniciará el historial de '}{' '}
                 <strong>
                   {piscina} — Ciclo {cicloActual}
                 </strong>
@@ -1501,6 +2260,133 @@ export default function Pescas() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* =========================================================
+   COMPONENTES DEL DETALLE
+========================================================= */
+
+function DetalleDato({
+  emoji,
+  titulo,
+  valor,
+  destacado = false,
+}: {
+  emoji: string;
+  titulo: string;
+  valor: string;
+  destacado?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        padding: '14px',
+        borderRadius: '14px',
+        background: destacado ? '#edf9f6' : '#f8fafb',
+        border: destacado ? '1px solid #cfece5' : '1px solid #e8eeee',
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          color: '#7b8c90',
+          fontSize: '11px',
+          fontWeight: 700,
+          marginBottom: '6px',
+        }}
+      >
+        {emoji} {titulo}
+      </span>
+
+      <strong
+        style={{
+          color: destacado ? '#0f8f83' : '#173f47',
+          fontSize: '15px',
+        }}
+      >
+        {valor}
+      </strong>
+    </div>
+  );
+}
+
+function ResumenMovimiento({
+  titulo,
+  valor,
+}: {
+  titulo: string;
+  valor: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: '11px 12px',
+        borderRadius: '12px',
+        background: '#ffffff',
+        border: '1px solid #e4eeec',
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          color: '#7d8e91',
+          fontSize: '11px',
+          marginBottom: '4px',
+        }}
+      >
+        {titulo}
+      </span>
+
+      <strong
+        style={{
+          color: '#173f47',
+          fontSize: '14px',
+        }}
+      >
+        {valor}
+      </strong>
+    </div>
+  );
+}
+
+function MovimientoDato({
+  titulo,
+  valor,
+}: {
+  titulo: string;
+  valor: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        borderRadius: '11px',
+        background: '#f8fafb',
+        border: '1px solid #edf1f2',
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          color: '#839397',
+          fontSize: '10px',
+          fontWeight: 700,
+          marginBottom: '4px',
+        }}
+      >
+        {titulo}
+      </span>
+
+      <strong
+        style={{
+          color: '#35545a',
+          fontSize: '12px',
+        }}
+      >
+        {valor}
+      </strong>
     </div>
   );
 }
