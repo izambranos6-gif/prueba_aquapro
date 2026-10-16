@@ -727,11 +727,6 @@ export default function Piscinas() {
       return;
     }
 
-    setFechaLiquidacionPrecria(
-      new Date().toISOString().slice(0, 10)
-    );
-
-    setObservacionLiquidacionPrecria('');
     setMostrarLiquidacionPrecria(true);
   }
 
@@ -748,42 +743,28 @@ export default function Piscinas() {
       return;
     }
 
-    if (!fechaLiquidacionPrecria) {
-      alert('⚠️ Ingresa la fecha de liquidación.');
-      return;
-    }
-
-    const confirmar = window.confirm(
-      `🔒 ¿Confirmas la liquidación de ${piscinaSiembra.nombre} - Ciclo ${cicloActivoSiembra.numero}?\n\n` +
-        `Cantidad sembrada: ${siembraActual.cantidadSembrada.toLocaleString()} camarones\n` +
-        `Total transferido: ${totalTransferidoPrecria.toLocaleString()} camarones\n` +
-        `Diferencia: ${diferenciaPrecria.toLocaleString()} camarones\n` +
-        `Supervivencia estimada: ${supervivenciaPrecria.toFixed(2)} %\n\n` +
-        'El ciclo quedará cerrado y la precría pasará a Disponible.'
-    );
-
-    if (!confirmar) {
-      return;
-    }
-
     try {
-      const resultado = liquidarPrecria(
-        piscinaSiembra.id,
-        {
-          fecha: fechaLiquidacionPrecria,
-          observacion: observacionLiquidacionPrecria,
-        }
-      );
+      const hoy = new Date();
+
+      const fechaLiquidacion = `${hoy.getFullYear()}-${String(
+        hoy.getMonth() + 1
+      ).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
+      const resultado = liquidarPrecria(piscinaSiembra.id, {
+        fecha: fechaLiquidacion,
+        observacion: '',
+      });
+
+      cerrarLiquidacionPrecria();
+      cerrarSiembra();
 
       alert(
         `✅ Precría liquidada correctamente.\n\n` +
           `🔒 Ciclo ${resultado.cicloCerrado} finalizado.\n` +
+          `📅 Fecha de liquidación: ${formatearFecha(fechaLiquidacion)}.\n` +
           `🌱 Próximo: Ciclo ${resultado.proximoCiclo}.\n` +
           `🟢 ${resultado.piscina} quedó Disponible para una nueva siembra.`
       );
-
-      cerrarLiquidacionPrecria();
-      cerrarSiembra();
     } catch (error) {
       alert(
         error instanceof Error
@@ -1745,6 +1726,165 @@ export default function Piscinas() {
                   </div>
                 )}
 
+                {piscinaSiembra.tipo === 'Precría' && (
+                  <div
+                    style={{
+                      marginTop: '16px',
+                      padding: '16px',
+                      borderRadius: '16px',
+                      background: '#f8fbfb',
+                      border: '1px solid #dfecea',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        marginBottom: '13px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: '#244f49' }}>
+                          ➡️ Transferencias realizadas
+                        </strong>
+                        <div
+                          style={{
+                            color: '#718781',
+                            fontSize: '12px',
+                            marginTop: '3px',
+                          }}
+                        >
+                          Destinos registrados desde esta precría en el ciclo actual.
+                        </div>
+                      </div>
+
+                      <span
+                        style={{
+                          padding: '7px 10px',
+                          borderRadius: '999px',
+                          background:
+                            destinosPrecria.length > 0 ? '#eef8f6' : '#f3f5f6',
+                          color:
+                            destinosPrecria.length > 0 ? '#15796d' : '#718188',
+                          fontSize: '12px',
+                          fontWeight: 800,
+                        }}
+                      >
+                        {destinosPrecria.length}{' '}
+                        {destinosPrecria.length === 1
+                          ? 'transferencia'
+                          : 'transferencias'}
+                      </span>
+                    </div>
+
+                    {destinosPrecria.length > 0 ? (
+                      <>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns:
+                              'repeat(3, minmax(0, 1fr))',
+                            gap: '10px',
+                            marginBottom: '12px',
+                          }}
+                        >
+                          <InfoSiembra
+                            titulo="➡️ Total transferido"
+                            valor={`${totalTransferidoPrecria.toLocaleString()} camarones`}
+                          />
+
+                          <InfoSiembra
+                            titulo="📉 Diferencia"
+                            valor={`${diferenciaPrecria.toLocaleString()} camarones`}
+                          />
+
+                          <InfoSiembra
+                            titulo="📊 Supervivencia estimada"
+                            valor={`${supervivenciaPrecria.toFixed(2)} %`}
+                          />
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'grid',
+                            gap: '10px',
+                          }}
+                        >
+                          {destinosPrecria.map((destino) => (
+                            <div
+                              key={`${destino.piscinaId}-${destino.ciclo}`}
+                              style={{
+                                padding: '12px 13px',
+                                borderRadius: '11px',
+                                background: '#ffffff',
+                                border: '1px solid #e3ecea',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '12px',
+                                flexWrap: 'wrap',
+                              }}
+                            >
+                              <div>
+                                <strong>
+                                  🌊 {destino.piscinaNombre}
+                                </strong>
+
+                                <div
+                                  style={{
+                                    marginTop: '4px',
+                                    color: '#718781',
+                                    fontSize: '12px',
+                                  }}
+                                >
+                                  Ciclo {destino.ciclo} ·{' '}
+                                  {formatearFecha(destino.fecha)}
+                                </div>
+                              </div>
+
+                              <div style={{ textAlign: 'right' }}>
+                                <strong>
+                                  {destino.cantidadSembrada.toLocaleString()}{' '}
+                                  camarones
+                                </strong>
+
+                                <div
+                                  style={{
+                                    marginTop: '4px',
+                                    color: '#718781',
+                                    fontSize: '12px',
+                                  }}
+                                >
+                                  Peso inicial:{' '}
+                                  {destino.pesoInicial !== null
+                                    ? `${destino.pesoInicial} g`
+                                    : 'No registrado'}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div
+                        style={{
+                          padding: '13px',
+                          borderRadius: '10px',
+                          background: '#fff8e8',
+                          color: '#8a6b25',
+                          fontSize: '13px',
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        ⚠️ Aún no hay transferencias registradas para este ciclo.
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {siembraActual.observacion && (
                   <div
                     style={{
@@ -2211,7 +2351,7 @@ export default function Piscinas() {
       )}
 
       {/* ===================================================
-          MODAL LIQUIDACIÓN PRECRÍA
+          CONFIRMACIÓN LIQUIDACIÓN PRECRÍA
       =================================================== */}
 
       {mostrarLiquidacionPrecria &&
@@ -2223,255 +2363,154 @@ export default function Piscinas() {
             onClick={cerrarLiquidacionPrecria}
           >
             <div
-              className="pool-modal"
               onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: '760px' }}
+              style={{
+                width: 'min(92vw, 520px)',
+                background: '#ffffff',
+                borderRadius: '22px',
+                boxShadow: '0 24px 70px rgba(20, 65, 58, 0.24)',
+                overflow: 'hidden',
+                border: '1px solid #dce9e6',
+              }}
             >
-              <div className="modal-header">
-                <div>
-                  <h2>🔒 Liquidar precría</h2>
-                  <p>
-                    {piscinaSiembra.nombre} — Ciclo{' '}
-                    {cicloActivoSiembra.numero}
-                  </p>
-                </div>
-
-                <button
-                  className="modal-close"
-                  type="button"
-                  onClick={cerrarLiquidacionPrecria}
-                >
-                  ×
-                </button>
-              </div>
-
               <form onSubmit={confirmarLiquidacionPrecria}>
                 <div
                   style={{
-                    padding: '14px',
-                    borderRadius: '14px',
-                    background: '#f3f8f7',
-                    marginBottom: '16px',
+                    padding: '26px 26px 18px',
+                    textAlign: 'center',
                   }}
                 >
                   <div
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns:
-                        'repeat(2, minmax(0, 1fr))',
-                      gap: '10px',
+                      width: '58px',
+                      height: '58px',
+                      margin: '0 auto 14px',
+                      borderRadius: '18px',
+                      background: '#eaf8f5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '27px',
                     }}
                   >
-                    <DatoAutomatico
-                      titulo="🌊 Precría"
-                      valor={piscinaSiembra.nombre}
-                    />
+                    🔒
+                  </div>
 
-                    <DatoAutomatico
-                      titulo="🔄 Ciclo"
-                      valor={`Ciclo ${cicloActivoSiembra.numero}`}
-                    />
+                  <h2
+                    style={{
+                      margin: 0,
+                      color: '#183f39',
+                      fontSize: '22px',
+                    }}
+                  >
+                    Liquidar precría
+                  </h2>
 
-                    <DatoAutomatico
-                      titulo="📅 Fecha de siembra"
-                      valor={formatearFecha(siembraActual.fecha)}
-                    />
+                  <p
+                    style={{
+                      margin: '7px 0 0',
+                      color: '#70847f',
+                      fontSize: '14px',
+                    }}
+                  >
+                    {piscinaSiembra.nombre} · Ciclo {cicloActivoSiembra.numero}
+                  </p>
+                </div>
 
-                    <DatoAutomatico
-                      titulo="🦐 Cantidad inicial"
-                      valor={`${siembraActual.cantidadSembrada.toLocaleString()} camarones`}
-                    />
+                <div
+                  style={{
+                    margin: '0 22px',
+                    padding: '16px',
+                    borderRadius: '16px',
+                    background: '#f5faf9',
+                    border: '1px solid #e1eeeb',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: '14px',
+                      alignItems: 'center',
+                      paddingBottom: '11px',
+                      marginBottom: '11px',
+                      borderBottom: '1px solid #e2ecea',
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: '#71847f',
+                        fontSize: '13px',
+                      }}
+                    >
+                      🦐 Total transferido
+                    </span>
+
+                    <strong
+                      style={{
+                        color: '#174f47',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {totalTransferidoPrecria.toLocaleString()} camarones
+                    </strong>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: '14px',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: '#71847f',
+                        fontSize: '13px',
+                      }}
+                    >
+                      📊 Supervivencia estimada
+                    </span>
+
+                    <strong
+                      style={{
+                        color: '#174f47',
+                      }}
+                    >
+                      {supervivenciaPrecria.toFixed(2)} %
+                    </strong>
                   </div>
                 </div>
 
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns:
-                      'repeat(2, minmax(0, 1fr))',
-                    gap: '12px',
-                  }}
-                >
-                  <InfoSiembra
-                    titulo="➡️ Total transferido"
-                    valor={`${totalTransferidoPrecria.toLocaleString()} camarones`}
-                  />
-
-                  <InfoSiembra
-                    titulo="📉 Diferencia"
-                    valor={`${diferenciaPrecria.toLocaleString()} camarones`}
-                  />
-
-                  <InfoSiembra
-                    titulo="📊 Supervivencia estimada"
-                    valor={`${supervivenciaPrecria.toFixed(2)} %`}
-                  />
-
-                  <InfoSiembra
-                    titulo="🌊 Piscinas destino"
-                    valor={`${destinosPrecria.length} registrada${
-                      destinosPrecria.length === 1 ? '' : 's'
-                    }`}
-                  />
-                </div>
-
-                <div
-                  style={{
-                    marginTop: '16px',
-                    padding: '16px',
+                    margin: '14px 22px 0',
+                    padding: '14px 15px',
                     borderRadius: '14px',
-                    border: '1px solid #dfecea',
-                    background: '#f8fbfb',
-                  }}
-                >
-                  <strong
-                    style={{
-                      display: 'block',
-                      color: '#284f49',
-                      marginBottom: '10px',
-                    }}
-                  >
-                    ➡️ Transferencias / siembras destino
-                  </strong>
-
-                  {destinosPrecria.length > 0 ? (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gap: '10px',
-                      }}
-                    >
-                      {destinosPrecria.map((destino) => (
-                        <div
-                          key={`${destino.piscinaId}-${destino.ciclo}`}
-                          style={{
-                            padding: '12px 13px',
-                            borderRadius: '11px',
-                            background: '#ffffff',
-                            border: '1px solid #e3ecea',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: '12px',
-                            flexWrap: 'wrap',
-                          }}
-                        >
-                          <div>
-                            <strong>
-                              🌊 {destino.piscinaNombre}
-                            </strong>
-
-                            <div
-                              style={{
-                                marginTop: '4px',
-                                color: '#718781',
-                                fontSize: '12px',
-                              }}
-                            >
-                              Ciclo {destino.ciclo} ·{' '}
-                              {formatearFecha(destino.fecha)}
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              textAlign: 'right',
-                            }}
-                          >
-                            <strong>
-                              {destino.cantidadSembrada.toLocaleString()}{' '}
-                              camarones
-                            </strong>
-
-                            <div
-                              style={{
-                                marginTop: '4px',
-                                color: '#718781',
-                                fontSize: '12px',
-                              }}
-                            >
-                              Peso inicial:{' '}
-                              {destino.pesoInicial !== null
-                                ? `${destino.pesoInicial} g`
-                                : 'No registrado'}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        padding: '13px',
-                        borderRadius: '10px',
-                        background: '#fff8e8',
-                        color: '#8a6b25',
-                        fontSize: '13px',
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      ⚠️ No hay transferencias registradas para este ciclo.
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  className="form-grid"
-                  style={{ marginTop: '16px' }}
-                >
-                  <label>
-                    📅 Fecha de liquidación
-                    <input
-                      type="date"
-                      required
-                      min={siembraActual.fecha}
-                      value={fechaLiquidacionPrecria}
-                      onChange={(e) =>
-                        setFechaLiquidacionPrecria(e.target.value)
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    📝 Observación
-                    <input
-                      value={observacionLiquidacionPrecria}
-                      onChange={(e) =>
-                        setObservacionLiquidacionPrecria(
-                          e.target.value
-                        )
-                      }
-                      placeholder="Opcional"
-                    />
-                  </label>
-                </div>
-
-                <div
-                  style={{
-                    marginTop: '16px',
-                    padding: '14px',
-                    borderRadius: '12px',
-                    background: '#eef8f6',
-                    color: '#58716c',
+                    background: '#fff9ea',
+                    color: '#786224',
                     fontSize: '13px',
-                    lineHeight: 1.5,
+                    lineHeight: 1.55,
                   }}
                 >
                   💡 Al confirmar, el{' '}
-                  <strong>
-                    Ciclo {cicloActivoSiembra.numero}
-                  </strong>{' '}
-                  quedará guardado como finalizado. La precría{' '}
-                  <strong>{piscinaSiembra.nombre}</strong> pasará a{' '}
-                  <strong>Disponible</strong> y la próxima siembra
-                  iniciará automáticamente el{' '}
-                  <strong>
-                    Ciclo {cicloActivoSiembra.numero + 1}
-                  </strong>
-                  .
+                  <strong>Ciclo {cicloActivoSiembra.numero}</strong> quedará
+                  finalizado, <strong>{piscinaSiembra.nombre}</strong> pasará a{' '}
+                  <strong>Disponible</strong> y la próxima siembra corresponderá
+                  al <strong>Ciclo {cicloActivoSiembra.numero + 1}</strong>.
+                  La fecha de liquidación se registrará automáticamente con la
+                  fecha de hoy.
                 </div>
 
-                <div className="modal-actions">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: '10px',
+                    padding: '22px',
+                  }}
+                >
                   <button
                     type="button"
                     className="secondary-button"
@@ -2483,6 +2522,9 @@ export default function Piscinas() {
                   <button
                     type="submit"
                     className="primary-button"
+                    style={{
+                      minWidth: '190px',
+                    }}
                   >
                     🔒 Confirmar liquidación
                   </button>
@@ -2491,6 +2533,7 @@ export default function Piscinas() {
             </div>
           </div>
         )}
+
     </div>
   );
 }
