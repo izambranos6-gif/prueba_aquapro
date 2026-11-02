@@ -18,6 +18,7 @@ import {
 import {
   useAquaProStore,
   obtenerCicloActivo,
+  obtenerCiclosPiscina,
   cerrarCicloPorLiquidacion,
 } from '../store/aquaProStore';
 
@@ -423,10 +424,66 @@ export default function Pescas() {
      NOCHES DE PESCA
   ======================================================= */
 
+  function obtenerNumeroInicialNochesPesca() {
+    if (!piscina || cicloActual === null) return 1;
+
+    const pescasPrevias = registros
+      .filter(
+        (registro) =>
+          registro.tipo === 'Pesca' &&
+          registro.piscina === piscina &&
+          registro.cicloActual === cicloActual &&
+          registro.id !== registroEditando?.id
+      )
+      .flatMap((registro) =>
+        (registro.noches ?? []).map((noche) => ({
+          registroId: registro.id,
+          noche,
+        }))
+      )
+      .sort((a, b) => {
+        const fechaComparacion = a.noche.fecha.localeCompare(b.noche.fecha);
+
+        if (fechaComparacion !== 0) return fechaComparacion;
+
+        const registroComparacion = a.registroId - b.registroId;
+
+        if (registroComparacion !== 0) return registroComparacion;
+
+        return a.noche.id - b.noche.id;
+      });
+
+    if (!registroEditando || registroEditando.tipo !== 'Pesca') {
+      return pescasPrevias.length + 1;
+    }
+
+    const primeraFechaActual =
+      registroEditando.noches && registroEditando.noches.length > 0
+        ? [...registroEditando.noches]
+            .filter((noche) => noche.fecha)
+            .sort((a, b) => a.fecha.localeCompare(b.fecha))[0]?.fecha ||
+          registroEditando.fecha
+        : registroEditando.fecha;
+
+    const anteriores = pescasPrevias.filter(({ registroId, noche }) => {
+      if (!noche.fecha) return false;
+
+      if (noche.fecha < primeraFechaActual) return true;
+
+      if (noche.fecha > primeraFechaActual) return false;
+
+      return registroId < registroEditando.id;
+    });
+
+    return anteriores.length + 1;
+  }
+
   function agregarNoche() {
+    const numeroInicial = obtenerNumeroInicialNochesPesca();
+
     const nuevaNoche: NochePesca = {
       id: Date.now(),
-      numero: noches.length + 1,
+      numero: numeroInicial + noches.length,
       fecha: '',
       libras: 0,
       pesoInicial: undefined,
@@ -470,11 +527,13 @@ export default function Pescas() {
   }
 
   function eliminarNoche(id: number) {
+    const numeroInicial = obtenerNumeroInicialNochesPesca();
+
     const nuevasNoches = noches
       .filter((noche) => noche.id !== id)
       .map((noche, index) => ({
         ...noche,
-        numero: index + 1,
+        numero: numeroInicial + index,
       }));
 
     setNoches(nuevasNoches);
@@ -655,7 +714,36 @@ export default function Pescas() {
 
     setObservacion(registro.observacion || '');
 
-    setNoches(registro.noches || []);
+    if (registro.tipo === 'Pesca') {
+      const movimientos = movimientosDelCiclo(
+        registro.piscina,
+        registro.cicloActual
+      );
+
+      const movimientoActual = movimientos.find(
+        ({ registro: item }) => item.id === registro.id
+      );
+
+      const nochesNormalizadas = [...(registro.noches ?? [])]
+        .sort((a, b) => {
+          const fechaComparacion = a.fecha.localeCompare(b.fecha);
+
+          if (fechaComparacion !== 0) return fechaComparacion;
+
+          return a.id - b.id;
+        })
+        .map((noche) => ({
+          ...noche,
+          numero:
+            movimientoActual?.numeroNochePorClave.get(
+              `${registro.id}-${noche.id}`
+            ) ?? noche.numero,
+        }));
+
+      setNoches(nochesNormalizadas);
+    } else {
+      setNoches([]);
+    }
 
     setPescaFinalizada(registro.estado === 'Finalizado');
 
@@ -739,6 +827,31 @@ export default function Pescas() {
       numeroRaleo.set(registro.id, indice + 1);
     });
 
+    const numeroNochePorClave = new Map<string, number>();
+
+    movimientos
+      .filter((registro) => registro.tipo === 'Pesca')
+      .flatMap((registro) =>
+        (registro.noches ?? []).map((noche) => ({
+          registroId: registro.id,
+          noche,
+        }))
+      )
+      .sort((a, b) => {
+        const fechaComparacion = a.noche.fecha.localeCompare(b.noche.fecha);
+
+        if (fechaComparacion !== 0) return fechaComparacion;
+
+        const registroComparacion = a.registroId - b.registroId;
+
+        if (registroComparacion !== 0) return registroComparacion;
+
+        return a.noche.id - b.noche.id;
+      })
+      .forEach(({ registroId, noche }, indice) => {
+        numeroNochePorClave.set(`${registroId}-${noche.id}`, indice + 1);
+      });
+
     return movimientos
       .map((registro) => ({
         registro,
@@ -746,6 +859,7 @@ export default function Pescas() {
           registro.tipo === 'Raleo'
             ? numeroRaleo.get(registro.id) ?? 1
             : null,
+        numeroNochePorClave,
       }))
       .sort((a, b) => {
         const fechaA =
@@ -997,8 +1111,7 @@ export default function Pescas() {
                 minHeight: '42px',
                 border: '1px solid #dbe4ea',
                 borderRadius: '10px',
-                padding: '0 10px',
-              }}
+                padding: '0 10px',}}
             />
 
             <label
@@ -1235,13 +1348,12 @@ export default function Pescas() {
         );
 
         const cicloDetalle = piscinaDetalle
-          ? obtenerCicloActivo(piscinaDetalle.id)
+          ? obtenerCiclosPiscina(piscinaDetalle.id).find(
+              (ciclo) => ciclo.numero === detalleCiclo.cicloActual
+            ) ?? null
           : null;
 
-        const siembraDetalle =
-          cicloDetalle?.numero === detalleCiclo.cicloActual
-            ? cicloDetalle.siembra
-            : null;
+        const siembraDetalle = cicloDetalle?.siembra ?? null;
 
         const movimientos = movimientosDelCiclo(
           detalleCiclo.piscina,
@@ -1450,7 +1562,8 @@ export default function Pescas() {
                       gap: '12px',
                     }}
                   >
-                    {movimientos.map(({ registro, numeroRaleo }) => (
+                    {movimientos.map(
+                      ({ registro, numeroRaleo, numeroNochePorClave }) => (
                       <div
                         key={registro.id}
                         style={{
@@ -1517,17 +1630,19 @@ export default function Pescas() {
                               <Pencil size={15} />
                             </button>
 
-                            <strong
-                            style={{
-                              padding: '7px 11px',
-                              borderRadius: '10px',
-                              background: '#eef9f7',
-                              color: '#0f8f83',
-                              fontSize: '14px',
-                            }}
-                          >
-                            {registro.libras.toLocaleString()} lb
-                            </strong>
+                            {registro.tipo !== 'Pesca' && (
+                              <strong
+                                style={{
+                                  padding: '7px 11px',
+                                  borderRadius: '10px',
+                                  background: '#eef9f7',
+                                  color: '#0f8f83',
+                                  fontSize: '14px',
+                                }}
+                              >
+                                {registro.libras.toLocaleString()} lb
+                              </strong>
+                            )}
                           </div>
                         </div>
 
@@ -1603,18 +1718,13 @@ export default function Pescas() {
                                           fontSize: '13px',
                                         }}
                                       >
-                                        🌙 {numeroNoche(indice + 1)}
+                                        🌙{' '}
+                                        {numeroNoche(
+                                          numeroNochePorClave.get(
+                                            `${registro.id}-${noche.id}`
+                                          ) ?? noche.numero
+                                        )}
                                       </strong>
-
-                                      <div
-                                        style={{
-                                          marginTop: '3px',
-                                          color: '#849397',
-                                          fontSize: '11px',
-                                        }}
-                                      >
-                                        {fechaBonita(noche.fecha)}
-                                      </div>
 
                                       {(noche.pesoInicial != null ||
                                         noche.pesoFinal != null) && (
@@ -1663,7 +1773,7 @@ export default function Pescas() {
                               </div>
                             )}
 
-                            {registro.noches && registro.noches.length > 0 && (
+                            {registro.noches && registro.noches.length > 1 && (
                               <div
                                 style={{
                                   display: 'flex',
@@ -1733,7 +1843,8 @@ export default function Pescas() {
                           </div>
                         )}
                       </div>
-                    ))}
+                    )
+                    )}
                   </div>
                 )}
               </div>
@@ -1997,8 +2108,7 @@ export default function Pescas() {
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={agregarNoche}
-                  >
+                    onClick={agregarNoche}>
                     <Plus size={17} />
                     Agregar noche
                   </button>
