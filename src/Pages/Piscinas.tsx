@@ -61,6 +61,7 @@ export default function Piscinas() {
 
   const [busqueda, setBusqueda] = useState('');
   const [zonaFiltro, setZonaFiltro] = useState('Todas');
+  const [tipoFiltro, setTipoFiltro] = useState('Todos');
   const [estadoFiltro, setEstadoFiltro] = useState('Todos');
 
   /* =======================================================
@@ -94,6 +95,35 @@ export default function Piscinas() {
 
   const [nuevoNauplio, setNuevoNauplio] = useState('');
   const [nuevoLaboratorio, setNuevoLaboratorio] = useState('');
+
+  const [siembraRegistrada, setSiembraRegistrada] = useState<{
+    piscina: string;
+    ciclo: number;
+  } | null>(null);
+
+  const [avisoPiscina, setAvisoPiscina] = useState<{
+    icono: string;
+    titulo: string;
+    detalle?: string;
+  } | null>(null);
+
+  const [piscinaPendienteEliminar, setPiscinaPendienteEliminar] =
+    useState<{
+      piscina: Piscina;
+      ciclos: number;
+    } | null>(null);
+
+  const [avisoSiembra, setAvisoSiembra] = useState<{
+    icono: string;
+    titulo: string;
+    detalle?: string;
+    descripcion?: string;
+  } | null>(null);
+
+  const [siembraPendienteEliminar, setSiembraPendienteEliminar] = useState<{
+    piscina: string;
+    ciclo: number;
+  } | null>(null);
 
   /* =======================================================
      MODAL LIQUIDACIÓN PRECRÍA
@@ -204,7 +234,7 @@ export default function Piscinas() {
   ======================================================= */
 
   const piscinasFiltradas = useMemo(() => {
-    return piscinas.filter((piscina) => {
+    const resultado = piscinas.filter((piscina) => {
       const texto = busqueda.trim().toLowerCase();
 
       const coincideBusqueda =
@@ -214,12 +244,27 @@ export default function Piscinas() {
       const coincideZona =
         zonaFiltro === 'Todas' || piscina.zona === zonaFiltro;
 
+      const coincideTipo =
+        tipoFiltro === 'Todos' || piscina.tipo === tipoFiltro;
+
       const coincideEstado =
         estadoFiltro === 'Todos' || piscina.estado === estadoFiltro;
 
-      return coincideBusqueda && coincideZona && coincideEstado;
+      return (
+        coincideBusqueda &&
+        coincideZona &&
+        coincideTipo &&
+        coincideEstado
+      );
     });
-  }, [piscinas, busqueda, zonaFiltro, estadoFiltro]);
+
+    return resultado.sort((a, b) =>
+      a.nombre.localeCompare(b.nombre, 'es', {
+        numeric: true,
+        sensitivity: 'base',
+      })
+    );
+  }, [piscinas, busqueda, zonaFiltro, tipoFiltro, estadoFiltro]);
 
   /* =======================================================
      RESUMEN
@@ -295,6 +340,8 @@ export default function Piscinas() {
     e.preventDefault();
 
     try {
+      const nombrePiscina = formularioPiscina.nombre.trim();
+
       if (editandoPiscinaId !== null) {
         /*
           Si existe un ciclo activo,
@@ -318,30 +365,44 @@ export default function Piscinas() {
               }),
         });
 
-        alert('✅ Piscina actualizada correctamente.');
-      } else {
-        crearPiscina({
-          nombre: formularioPiscina.nombre,
+        cerrarFormularioPiscina();
 
-          zona: formularioPiscina.zona,
-
-          hectareas: Number(formularioPiscina.hectareas),
-
-          estado: formularioPiscina.estado,
-
-          tipo: formularioPiscina.tipo,
-
-          cicloInicial: Number(formularioPiscina.cicloInicial),
+        setAvisoPiscina({
+          icono: '✏️',
+          titulo: 'La piscina se actualizó correctamente.',
+          detalle: nombrePiscina,
         });
 
-        alert(
-          '🌊 Piscina registrada correctamente. Ahora puedes ingresar su primera siembra.'
-        );
+        return;
       }
 
+      crearPiscina({
+        nombre: formularioPiscina.nombre,
+
+        zona: formularioPiscina.zona,
+
+        hectareas: Number(formularioPiscina.hectareas),
+
+        estado: formularioPiscina.estado,
+
+        tipo: formularioPiscina.tipo,
+
+        cicloInicial: Number(formularioPiscina.cicloInicial),
+      });
+
       cerrarFormularioPiscina();
+
+      setAvisoPiscina({
+        icono: '🌊',
+        titulo: 'La piscina se registró correctamente.',
+        detalle: nombrePiscina,
+      });
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Ocurrió un error.');
+      setAvisoPiscina({
+        icono: '⚠️',
+        titulo:
+          error instanceof Error ? error.message : 'Ocurrió un error.',
+      });
     }
   }
 
@@ -352,22 +413,38 @@ export default function Piscinas() {
   function eliminarPiscina(piscina: Piscina) {
     const ciclos = obtenerCiclosPiscina(piscina.id);
 
-    let mensaje = `¿Seguro que deseas eliminar la piscina ${piscina.nombre}?`;
+    setPiscinaPendienteEliminar({
+      piscina,
+      ciclos: ciclos.length,
+    });
+  }
 
-    if (ciclos.length > 0) {
-      mensaje =
-        `⚠️ La piscina ${piscina.nombre} tiene ${ciclos.length} ciclo(s) registrado(s).\n\n` +
-        'Si la eliminas también se eliminará su historial local de ciclos y siembras.\n\n' +
-        '¿Deseas continuar?';
+  function confirmarEliminarPiscina() {
+    if (!piscinaPendienteEliminar) return;
+
+    const piscina = piscinaPendienteEliminar.piscina;
+
+    try {
+      eliminarPiscinaStore(piscina.id);
+
+      setPiscinaPendienteEliminar(null);
+
+      setAvisoPiscina({
+        icono: '🗑️',
+        titulo: 'La piscina se eliminó correctamente.',
+        detalle: piscina.nombre,
+      });
+    } catch (error) {
+      setPiscinaPendienteEliminar(null);
+
+      setAvisoPiscina({
+        icono: '⚠️',
+        titulo:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo eliminar la piscina.',
+      });
     }
-
-    const confirmar = window.confirm(mensaje);
-
-    if (!confirmar) return;
-
-    eliminarPiscinaStore(piscina.id);
-
-    alert('🗑️ Piscina eliminada.');
   }
 
   /* =======================================================
@@ -463,7 +540,10 @@ export default function Piscinas() {
         (item) => item.toLowerCase() === valor.toLowerCase()
       )
     ) {
-      alert('⚠️ Ese nauplio ya fue agregado.');
+      setAvisoSiembra({
+        icono: '⚠️',
+        titulo: 'Ese nauplio ya fue agregado.',
+      });
       return;
     }
 
@@ -494,7 +574,10 @@ export default function Piscinas() {
         (item) => item.toLowerCase() === valor.toLowerCase()
       )
     ) {
-      alert('⚠️ Ese laboratorio ya fue agregado.');
+      setAvisoSiembra({
+        icono: '⚠️',
+        titulo: 'Ese laboratorio ya fue agregado.',
+      });
       return;
     }
 
@@ -634,9 +717,13 @@ export default function Piscinas() {
       if (cicloActivoSiembra && siembraActual) {
         actualizarSiembraActual(piscinaSiembra.id, datos);
 
-        alert('✅ Siembra actualizada correctamente.');
-
         setEditandoSiembra(false);
+
+        setAvisoSiembra({
+          icono: '✏️',
+          titulo: 'La siembra se actualizó correctamente.',
+          detalle: `${piscinaSiembra.nombre} · Ciclo ${cicloActivoSiembra.numero}`,
+        });
 
         return;
       }
@@ -653,17 +740,22 @@ export default function Piscinas() {
         ...datos,
       });
 
-      alert(
-        `🦐 Siembra registrada correctamente.\n\n🌱 Se inició automáticamente el Ciclo ${nuevoCiclo.numero}.`
-      );
+      const piscinaRegistrada = piscinaSiembra.nombre;
 
       cerrarSiembra();
+
+      setSiembraRegistrada({
+        piscina: piscinaRegistrada,
+        ciclo: nuevoCiclo.numero,
+      });
     } catch (error) {
-      alert(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo registrar la siembra.'
-      );
+      setAvisoSiembra({
+        icono: '⚠️',
+        titulo:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo registrar la siembra.',
+      });
     }
   }
 
@@ -672,30 +764,45 @@ export default function Piscinas() {
   ======================================================= */
 
   function eliminarSiembra() {
-    if (!piscinaSiembra) {
+    if (!piscinaSiembra || !cicloActivoSiembra) {
       return;
     }
 
-    const confirmar = window.confirm(
-      '⚠️ ¿Seguro que deseas eliminar esta siembra?\n\nEl ciclo activo creado con esta siembra también será eliminado.'
-    );
+    setSiembraPendienteEliminar({
+      piscina: piscinaSiembra.nombre,
+      ciclo: cicloActivoSiembra.numero,
+    });
+  }
 
-    if (!confirmar) {
+  function confirmarEliminarSiembra() {
+    if (!piscinaSiembra || !siembraPendienteEliminar) {
       return;
     }
+
+    const piscinaEliminada = siembraPendienteEliminar.piscina;
+    const cicloEliminado = siembraPendienteEliminar.ciclo;
 
     try {
       eliminarSiembraActual(piscinaSiembra.id);
 
-      alert('🗑️ Siembra eliminada.');
-
+      setSiembraPendienteEliminar(null);
       cerrarSiembra();
+
+      setAvisoSiembra({
+        icono: '🗑️',
+        titulo: 'La siembra se eliminó correctamente.',
+        detalle: `${piscinaEliminada} · Ciclo ${cicloEliminado}`,
+      });
     } catch (error) {
-      alert(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo eliminar la siembra.'
-      );
+      setSiembraPendienteEliminar(null);
+
+      setAvisoSiembra({
+        icono: '⚠️',
+        titulo:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo eliminar la siembra.',
+      });
     }
   }
 
@@ -709,7 +816,10 @@ export default function Piscinas() {
     }
 
     if (piscinaSiembra.tipo !== 'Precría') {
-      alert('Esta acción solamente está disponible para precrías.');
+      setAvisoSiembra({
+        icono: '⚠️',
+        titulo: 'Esta acción solamente está disponible para precrías.',
+      });
       return;
     }
 
@@ -719,11 +829,13 @@ export default function Piscinas() {
     );
 
     if (destinos.length === 0) {
-      alert(
-        `⚠️ No se puede liquidar la precría ${piscinaSiembra.nombre}.\n\n` +
-          `El Ciclo ${cicloActivoSiembra.numero} todavía no tiene ninguna transferencia o siembra de engorde registrada.\n\n` +
-          'Primero registra al menos una piscina de Engorde utilizando esta precría como origen.'
-      );
+      setAvisoSiembra({
+        icono: '⚠️',
+        titulo: 'No se puede liquidar esta precría.',
+        detalle: `${piscinaSiembra.nombre} · Ciclo ${cicloActivoSiembra.numero}`,
+        descripcion:
+          'Primero registra al menos una transferencia hacia una piscina de Engorde.',
+      });
       return;
     }
 
@@ -758,19 +870,20 @@ export default function Piscinas() {
       cerrarLiquidacionPrecria();
       cerrarSiembra();
 
-      alert(
-        `✅ Precría liquidada correctamente.\n\n` +
-          `🔒 Ciclo ${resultado.cicloCerrado} finalizado.\n` +
-          `📅 Fecha de liquidación: ${formatearFecha(fechaLiquidacion)}.\n` +
-          `🌱 Próximo: Ciclo ${resultado.proximoCiclo}.\n` +
-          `🟢 ${resultado.piscina} quedó Disponible para una nueva siembra.`
-      );
+      setAvisoSiembra({
+        icono: '🎯',
+        titulo: 'La precría se liquidó correctamente.',
+        detalle: `${resultado.piscina} · Ciclo ${resultado.cicloCerrado}`,
+        descripcion: `La piscina quedó disponible para una nueva siembra. Próximo: Ciclo ${resultado.proximoCiclo}.`,
+      });
     } catch (error) {
-      alert(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo liquidar la precría.'
-      );
+      setAvisoSiembra({
+        icono: '⚠️',
+        titulo:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo liquidar la precría.',
+      });
     }
   }
 
@@ -890,8 +1003,23 @@ export default function Piscinas() {
       <section className="pools-panel">
         {/* TOOLBAR */}
 
-        <div className="pools-toolbar">
-          <div className="search-box">
+        <div
+          className="pools-toolbar"
+          style={{
+            display: 'grid',
+            gridTemplateColumns:
+              'minmax(280px, 2fr) repeat(3, minmax(150px, 1fr))',
+            gap: '10px',
+            alignItems: 'center',
+          }}
+        >
+          <div
+            className="search-box"
+            style={{
+              width: '100%',
+              minWidth: 0,
+            }}
+          >
             <span>⌕</span>
 
             <input
@@ -904,6 +1032,7 @@ export default function Piscinas() {
           <select
             value={zonaFiltro}
             onChange={(e) => setZonaFiltro(e.target.value)}
+            style={{ width: '100%', minWidth: 0 }}
           >
             <option value="Todas">Todas las zonas</option>
 
@@ -915,8 +1044,21 @@ export default function Piscinas() {
           </select>
 
           <select
+            value={tipoFiltro}
+            onChange={(e) => setTipoFiltro(e.target.value)}
+            style={{ width: '100%', minWidth: 0 }}
+          >
+            <option value="Todos">Todos los tipos</option>
+
+            <option value="Precría">🍼 Precría</option>
+
+            <option value="Engorde">🌊 Engorde</option>
+          </select>
+
+          <select
             value={estadoFiltro}
             onChange={(e) => setEstadoFiltro(e.target.value)}
+            style={{ width: '100%', minWidth: 0 }}
           >
             <option value="Todos">Todos los estados</option>
 
@@ -930,6 +1072,7 @@ export default function Piscinas() {
 
             <option value="Vacía">Vacía</option>
           </select>
+
         </div>
 
         {/* =================================================
@@ -1229,12 +1372,14 @@ export default function Piscinas() {
                       })
                     }
                     placeholder="Ej. IS105"
+                    required
                   />
                 </label>
 
                 <label>
                   Zona
                   <select
+                    required
                     value={formularioPiscina.zona}
                     onChange={(e) =>
                       setFormularioPiscina({
@@ -1252,6 +1397,7 @@ export default function Piscinas() {
                 <label>
                   Tipo de piscina
                   <select
+                    required
                     value={formularioPiscina.tipo}
                     onChange={(e) =>
                       setFormularioPiscina({
@@ -1279,6 +1425,7 @@ export default function Piscinas() {
                       })
                     }
                     placeholder="Ej. 18.85"
+                    required
                   />
                 </label>
 
@@ -1289,6 +1436,7 @@ export default function Piscinas() {
                     <label>
                       Estado inicial
                       <select
+                        required
                         value={formularioPiscina.estado}
                         onChange={(e) =>
                           setFormularioPiscina({
@@ -1319,6 +1467,7 @@ export default function Piscinas() {
                           })
                         }
                         placeholder="Ej. 1"
+                        required
                       />
                     </label>
                   </>
@@ -1334,6 +1483,7 @@ export default function Piscinas() {
                         <input value="Activa / En producción" disabled />
                       ) : (
                         <select
+                          required
                           value={formularioPiscina.estado}
                           onChange={(e) =>
                             setFormularioPiscina({
@@ -1443,6 +1593,230 @@ export default function Piscinas() {
       )}
 
       {/* ===================================================
+          AVISO DE PISCINA
+      =================================================== */}
+
+      {avisoPiscina && (
+        <div className="modal-backdrop" onClick={() => setAvisoPiscina(null)}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(92vw, 440px)',
+              background: '#ffffff',
+              borderRadius: '22px',
+              boxShadow: '0 24px 70px rgba(20, 65, 58, 0.24)',
+              overflow: 'hidden',
+              border: '1px solid #dce9e6',
+            }}
+          >
+            <div
+              style={{
+                padding: '30px 26px 18px',
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: '62px',
+                  height: '62px',
+                  margin: '0 auto 16px',
+                  borderRadius: '19px',
+                  background:
+                    avisoPiscina.icono === '⚠️' ? '#fff7e8' : '#eaf8f5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '29px',
+                }}
+              >
+                {avisoPiscina.icono}
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color:
+                    avisoPiscina.icono === '⚠️' ? '#7a5a19' : '#183f39',
+                  fontSize: '22px',
+                  lineHeight: 1.35,
+                }}
+              >
+                {avisoPiscina.titulo}
+              </h2>
+
+              {avisoPiscina.detalle && (
+                <p
+                  style={{
+                    margin: '12px 0 0',
+                    color: '#70847f',
+                    fontSize: '15px',
+                    fontWeight: 700,
+                  }}
+                >
+                  {avisoPiscina.detalle}
+                </p>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                padding: '8px 22px 24px',
+              }}
+            >
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setAvisoPiscina(null)}
+                style={{
+                  minWidth: '150px',
+                }}
+              >
+                Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================
+          CONFIRMAR ELIMINACIÓN DE PISCINA
+      =================================================== */}
+
+      {piscinaPendienteEliminar && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPiscinaPendienteEliminar(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(92vw, 480px)',
+              background: '#ffffff',
+              borderRadius: '22px',
+              boxShadow: '0 24px 70px rgba(20, 65, 58, 0.24)',
+              overflow: 'hidden',
+              border: '1px solid #eadfda',
+            }}
+          >
+            <div
+              style={{
+                padding: '28px 26px 18px',
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: '62px',
+                  height: '62px',
+                  margin: '0 auto 16px',
+                  borderRadius: '19px',
+                  background: '#fff3ef',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '29px',
+                }}
+              >
+                🗑️
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color: '#613c34',
+                  fontSize: '22px',
+                  lineHeight: 1.35,
+                }}
+              >
+                ¿Eliminar la piscina?
+              </h2>
+
+              <p
+                style={{
+                  margin: '11px 0 0',
+                  color: '#425d57',
+                  fontSize: '16px',
+                  fontWeight: 800,
+                }}
+              >
+                {piscinaPendienteEliminar.piscina.nombre}
+              </p>
+
+              {piscinaPendienteEliminar.ciclos > 0 ? (
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '13px 14px',
+                    borderRadius: '12px',
+                    background: '#fff7e8',
+                    color: '#7a6127',
+                    fontSize: '13px',
+                    lineHeight: 1.55,
+                    textAlign: 'left',
+                  }}
+                >
+                  ⚠️ Esta piscina tiene{' '}
+                  <strong>
+                    {piscinaPendienteEliminar.ciclos}{' '}
+                    {piscinaPendienteEliminar.ciclos === 1
+                      ? 'ciclo registrado'
+                      : 'ciclos registrados'}
+                  </strong>
+                  . Al eliminarla también se eliminará su historial local de
+                  ciclos y siembras.
+                </div>
+              ) : (
+                <p
+                  style={{
+                    margin: '14px 0 0',
+                    color: '#718781',
+                    fontSize: '13px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Esta acción eliminará la piscina de AquaPro.
+                </p>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '10px',
+                padding: '8px 22px 24px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setPiscinaPendienteEliminar(null)}
+                style={{
+                  minWidth: '130px',
+                }}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                className="primary-button"
+                onClick={confirmarEliminarPiscina}
+                style={{
+                  minWidth: '160px',
+                }}
+              >
+                Eliminar piscina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================
           MODAL SIEMBRA
       =================================================== */}
 
@@ -1538,8 +1912,10 @@ export default function Piscinas() {
                   <InfoSiembra
                     titulo="🦐 Densidad de siembra"
                     valor={`${Math.round(
-                      siembraActual.cantidadSembrada / piscinaSiembra.hectareas
-                    ).toLocaleString('es-EC')} larvas/ha`}
+                     siembraActual.cantidadSembrada / piscinaSiembra.hectareas
+                   ).toLocaleString('es-EC')} ${
+                   piscinaSiembra.tipo === 'Precría' ? 'larvas/ha' : 'camarones/ha'
+                   }`}
                   />
 
                   <InfoSiembra
@@ -2272,7 +2648,9 @@ export default function Piscinas() {
                             {Math.round(densidadInicial).toLocaleString(
                               'es-EC'
                             )}{' '}
-                            larvas/ha
+                            {piscinaSiembra.tipo === 'Precría'
+                              ? 'larvas/ha'
+                              : 'camarones/ha'}
                           </strong>
                         </div>
                       </div>
@@ -2285,7 +2663,10 @@ export default function Piscinas() {
                         color: '#58716c',
                       }}
                     >
-                      Cálculo: {cantidadSembrada.toLocaleString('es-EC')} larvas
+                      Cálculo: {cantidadSembrada.toLocaleString('es-EC')}{' '}
+                      {piscinaSiembra.tipo === 'Precría'
+                        ? 'larvas'
+                        : 'camarones'}{' '}
                       ÷{' '}
                       {hectareasPiscina.toLocaleString('es-EC', {
                         minimumFractionDigits: 2,
@@ -2294,7 +2675,9 @@ export default function Piscinas() {
                       ha ={' '}
                       <strong>
                         {Math.round(densidadInicial).toLocaleString('es-EC')}{' '}
-                        larvas/ha
+                        {piscinaSiembra.tipo === 'Precría'
+                          ? 'larvas/ha'
+                          : 'camarones/ha'}
                       </strong>
                     </div>
                   </div>
@@ -2346,6 +2729,311 @@ export default function Piscinas() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================
+          AVISO DE SIEMBRA / PRECRÍA
+      =================================================== */}
+
+      {avisoSiembra && (
+        <div className="modal-backdrop" onClick={() => setAvisoSiembra(null)}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(92vw, 450px)',
+              background: '#ffffff',
+              borderRadius: '22px',
+              boxShadow: '0 24px 70px rgba(20, 65, 58, 0.24)',
+              overflow: 'hidden',
+              border: '1px solid #dce9e6',
+            }}
+          >
+            <div
+              style={{
+                padding: '30px 26px 18px',
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: '62px',
+                  height: '62px',
+                  margin: '0 auto 16px',
+                  borderRadius: '19px',
+                  background:
+                    avisoSiembra.icono === '⚠️' ? '#fff7e8' : '#eaf8f5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '29px',
+                }}
+              >
+                {avisoSiembra.icono}
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color:
+                    avisoSiembra.icono === '⚠️' ? '#7a5a19' : '#183f39',
+                  fontSize: '22px',
+                  lineHeight: 1.35,
+                }}
+              >
+                {avisoSiembra.titulo}
+              </h2>
+
+              {avisoSiembra.detalle && (
+                <p
+                  style={{
+                    margin: '12px 0 0',
+                    color: '#425d57',
+                    fontSize: '15px',
+                    fontWeight: 800,
+                  }}
+                >
+                  {avisoSiembra.detalle}
+                </p>
+              )}
+
+              {avisoSiembra.descripcion && (
+                <p
+                  style={{
+                    margin: '10px 0 0',
+                    color: '#70847f',
+                    fontSize: '13px',
+                    lineHeight: 1.55,
+                  }}
+                >
+                  {avisoSiembra.descripcion}
+                </p>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                padding: '8px 22px 24px',
+              }}
+            >
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setAvisoSiembra(null)}
+                style={{
+                  minWidth: '150px',
+                }}
+              >
+                Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================
+          CONFIRMAR ELIMINACIÓN DE SIEMBRA
+      =================================================== */}
+
+      {siembraPendienteEliminar && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setSiembraPendienteEliminar(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(92vw, 470px)',
+              background: '#ffffff',
+              borderRadius: '22px',
+              boxShadow: '0 24px 70px rgba(20, 65, 58, 0.24)',
+              overflow: 'hidden',
+              border: '1px solid #eadfda',
+            }}
+          >
+            <div
+              style={{
+                padding: '28px 26px 18px',
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: '62px',
+                  height: '62px',
+                  margin: '0 auto 16px',
+                  borderRadius: '19px',
+                  background: '#fff3ef',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '29px',
+                }}
+              >
+                🗑️
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color: '#613c34',
+                  fontSize: '22px',
+                  lineHeight: 1.35,
+                }}
+              >
+                ¿Eliminar la siembra?
+              </h2>
+
+              <p
+                style={{
+                  margin: '11px 0 0',
+                  color: '#425d57',
+                  fontSize: '15px',
+                  fontWeight: 800,
+                }}
+              >
+                {siembraPendienteEliminar.piscina} · Ciclo{' '}
+                {siembraPendienteEliminar.ciclo}
+              </p>
+
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '13px 14px',
+                  borderRadius: '12px',
+                  background: '#fff7e8',
+                  color: '#7a6127',
+                  fontSize: '13px',
+                  lineHeight: 1.55,
+                  textAlign: 'left',
+                }}
+              >
+                ⚠️ El ciclo activo creado con esta siembra también será
+                eliminado.
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '10px',
+                padding: '8px 22px 24px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setSiembraPendienteEliminar(null)}
+                style={{
+                  minWidth: '130px',
+                }}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                className="primary-button"
+                onClick={confirmarEliminarSiembra}
+                style={{
+                  minWidth: '160px',
+                }}
+              >
+                Eliminar siembra
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================
+          SIEMBRA REGISTRADA
+      =================================================== */}
+
+      {siembraRegistrada && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setSiembraRegistrada(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(92vw, 440px)',
+              background: '#ffffff',
+              borderRadius: '22px',
+              boxShadow: '0 24px 70px rgba(20, 65, 58, 0.24)',
+              overflow: 'hidden',
+              border: '1px solid #dce9e6',
+            }}
+          >
+            <div
+              style={{
+                padding: '30px 26px 18px',
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: '62px',
+                  height: '62px',
+                  margin: '0 auto 16px',
+                  borderRadius: '19px',
+                  background: '#eaf8f5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '29px',
+                }}
+              >
+                🌱
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color: '#183f39',
+                  fontSize: '22px',
+                  lineHeight: 1.35,
+                }}
+              >
+                La siembra se registró correctamente.
+              </h2>
+
+              <p
+                style={{
+                  margin: '12px 0 0',
+                  color: '#70847f',
+                  fontSize: '15px',
+                  fontWeight: 700,
+                }}
+              >
+                {siembraRegistrada.piscina} · Ciclo {siembraRegistrada.ciclo}
+              </p>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                padding: '8px 22px 24px',
+              }}
+            >
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setSiembraRegistrada(null)}
+                style={{
+                  minWidth: '150px',
+                }}
+              >
+                Aceptar
+              </button>
+            </div>
           </div>
         </div>
       )}
