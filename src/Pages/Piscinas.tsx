@@ -132,12 +132,6 @@ export default function Piscinas() {
   const [mostrarLiquidacionPrecria, setMostrarLiquidacionPrecria] =
     useState(false);
 
-  const [fechaLiquidacionPrecria, setFechaLiquidacionPrecria] =
-    useState('');
-
-  const [observacionLiquidacionPrecria, setObservacionLiquidacionPrecria] =
-    useState('');
-
   /* =======================================================
      PISCINA SELECCIONADA
   ======================================================= */
@@ -844,8 +838,6 @@ export default function Piscinas() {
 
   function cerrarLiquidacionPrecria() {
     setMostrarLiquidacionPrecria(false);
-    setFechaLiquidacionPrecria('');
-    setObservacionLiquidacionPrecria('');
   }
 
   function confirmarLiquidacionPrecria(e: FormEvent) {

@@ -35,6 +35,8 @@ type NochePesca = {
   libras: number;
   pesoInicial?: number;
   pesoFinal?: number;
+  empacadora?: string; // Compatibilidad con registros anteriores
+  destinoProduccion?: string;
 };
 
 type RegistroPesca = {
@@ -50,6 +52,8 @@ type RegistroPesca = {
 
   pesoInicial?: number;
   pesoFinal?: number;
+  empacadora?: string; // Compatibilidad con registros anteriores
+  destinoProduccion?: string;
   pesoVentaLocal?: number;
 
   comprador?: string;
@@ -57,7 +61,6 @@ type RegistroPesca = {
   observacion?: string;
   noches?: NochePesca[];
 
-  // El registro nunca se elimina.
   // Esta marca indica que el ciclo productivo ya fue cerrado.
   cosechaCerrada?: boolean;
   fechaCierreCosecha?: string;
@@ -135,6 +138,8 @@ export default function Pescas() {
 
   const [filtroPiscina, setFiltroPiscina] = useState('Todas');
 
+  const [filtroCiclo, setFiltroCiclo] = useState('Todos');
+
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
 
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
@@ -144,6 +149,9 @@ export default function Pescas() {
   ======================================================= */
 
   const [modalAbierto, setModalAbierto] = useState(false);
+
+  // Confirmación previa al guardado de un movimiento válido.
+  const [mostrarConfirmacionGuardado, setMostrarConfirmacionGuardado] = useState(false);
 
   const [registroEditando, setRegistroEditando] =
     useState<RegistroPesca | null>(null);
@@ -161,6 +169,10 @@ export default function Pescas() {
     cicloActual: number;
   } | null>(null);
 
+  // Solo se elimina el movimiento seleccionado desde el historial productivo.
+  const [movimientoPendienteEliminar, setMovimientoPendienteEliminar] =
+    useState<RegistroPesca | null>(null);
+
   /* =======================================================
      FORMULARIO
   ======================================================= */
@@ -176,6 +188,7 @@ export default function Pescas() {
   const [pesoInicial, setPesoInicial] = useState('');
 
   const [pesoFinal, setPesoFinal] = useState('');
+  const [destinoProduccion, setDestinoProduccion] = useState('');
 
   const [pesoVentaLocal, setPesoVentaLocal] = useState('');
 
@@ -188,6 +201,18 @@ export default function Pescas() {
   const [noches, setNoches] = useState<NochePesca[]>([]);
 
   const [pescaFinalizada, setPescaFinalizada] = useState(false);
+
+  // Mensajes de validación visibles debajo del campo, sin alertas del navegador.
+  const [erroresFormulario, setErroresFormulario] = useState<Record<string, string>>({});
+
+  function limpiarError(campo: string) {
+    setErroresFormulario((anteriores) => {
+      if (!anteriores[campo]) return anteriores;
+      const siguientes = { ...anteriores };
+      delete siguientes[campo];
+      return siguientes;
+    });
+  }
 
   /* =======================================================
      CICLO AUTOMÁTICO
@@ -209,6 +234,31 @@ export default function Pescas() {
   const piscinaId =
     contextoMovimiento?.piscinaId ?? piscinaSeleccionada?.id ?? null;
 
+  // Incluye piscinas con ciclos anteriores, aunque ya no tengan siembra activa.
+  const nombresPiscinasFiltro = useMemo(
+    () =>
+      Array.from(new Set([
+        ...piscinas.map((item) => item.nombre),
+        ...registros.map((registro) => registro.piscina),
+      ])).sort((a, b) => a.localeCompare(b, 'es', { numeric: true })),
+    [piscinas, registros]
+  );
+
+  // Los ciclos se toman del historial de pescas, no solamente del ciclo activo.
+  const ciclosDisponiblesFiltro = useMemo(
+    () =>
+      filtroPiscina === 'Todas'
+        ? []
+        : Array.from(
+            new Set(
+              registros
+                .filter((registro) => registro.piscina === filtroPiscina)
+                .map((registro) => registro.cicloActual)
+            )
+          ).sort((a, b) => b - a),
+    [filtroPiscina, registros]
+  );
+
   /* =======================================================
      FILTRAR REGISTROS
   ======================================================= */
@@ -227,6 +277,9 @@ export default function Pescas() {
       const coincidePiscina =
         filtroPiscina === 'Todas' || registro.piscina === filtroPiscina;
 
+      const coincideCiclo =
+        filtroCiclo === 'Todos' || registro.cicloActual === Number(filtroCiclo);
+
       const fechasRegistro =
         registro.tipo === 'Pesca' &&
         registro.noches &&
@@ -243,7 +296,7 @@ export default function Pescas() {
         );
 
       return (
-        coincideBusqueda && coincideTipo && coincidePiscina && coincideFecha
+        coincideBusqueda && coincideTipo && coincidePiscina && coincideCiclo && coincideFecha
       );
     });
   }, [
@@ -251,6 +304,7 @@ export default function Pescas() {
     busqueda,
     filtroTipo,
     filtroPiscina,
+    filtroCiclo,
     filtroFechaDesde,
     filtroFechaHasta,
   ]);
@@ -355,15 +409,15 @@ export default function Pescas() {
      TOTALES
   ======================================================= */
 
-  const totalRaleos = registros
+  const totalRaleos = registrosFiltrados
     .filter((registro) => registro.tipo === 'Raleo')
     .reduce((total, registro) => total + registro.libras, 0);
 
-  const totalPescas = registros
+  const totalPescas = registrosFiltrados
     .filter((registro) => registro.tipo === 'Pesca')
     .reduce((total, registro) => total + registro.libras, 0);
 
-  const totalVentaLocal = registros
+  const totalVentaLocal = registrosFiltrados
     .filter((registro) => registro.tipo === 'Venta local')
     .reduce((total, registro) => total + registro.libras, 0);
 
@@ -387,6 +441,7 @@ export default function Pescas() {
   }
 
   function limpiarFormulario() {
+    setErroresFormulario({});
     setRegistroEditando(null);
 
     setTipo('Raleo');
@@ -400,6 +455,7 @@ export default function Pescas() {
     setPesoInicial('');
 
     setPesoFinal('');
+    setDestinoProduccion('');
 
     setPesoVentaLocal('');
 
@@ -415,6 +471,7 @@ export default function Pescas() {
   }
 
   function cerrarModal() {
+    setMostrarConfirmacionGuardado(false);
     setModalAbierto(false);
     setContextoMovimiento(null);
     limpiarFormulario();
@@ -479,6 +536,7 @@ export default function Pescas() {
   }
 
   function agregarNoche() {
+    limpiarError('fecha');
     const numeroInicial = obtenerNumeroInicialNochesPesca();
 
     const nuevaNoche: NochePesca = {
@@ -488,6 +546,7 @@ export default function Pescas() {
       libras: 0,
       pesoInicial: undefined,
       pesoFinal: undefined,
+      destinoProduccion: '',
     };
 
     setNoches([...noches, nuevaNoche]);
@@ -495,13 +554,18 @@ export default function Pescas() {
 
   function actualizarNoche(
     id: number,
-    campo: 'fecha' | 'libras' | 'pesoInicial' | 'pesoFinal',
+    campo: 'fecha' | 'libras' | 'pesoInicial' | 'pesoFinal' | 'destinoProduccion',
     valor: string
   ) {
+    limpiarError(`noche-${id}-${campo}`);
     setNoches(
       noches.map((noche) => {
         if (noche.id !== id) {
           return noche;
+        }
+
+        if (campo === 'destinoProduccion') {
+          return { ...noche, destinoProduccion: valor };
         }
 
         if (campo === 'fecha') {
@@ -544,44 +608,57 @@ export default function Pescas() {
   ======================================================= */
 
   function guardarRegistro() {
+    const errores: Record<string, string> = {};
+
     if (!piscina) {
-      alert('Selecciona una piscina.');
-
-      return;
+      errores.piscina = 'Selecciona una piscina.';
+    } else if (cicloActual === null) {
+      errores.piscina = 'No se pudo determinar el ciclo de esta piscina.';
     }
 
-    if (cicloActual === null) {
-      alert('No se pudo determinar el ciclo actual de la piscina.');
-
-      return;
+    if (tipo !== 'Pesca') {
+      if (!fecha) errores.fecha = 'Selecciona una fecha.';
+      if (!libras.trim() || !Number.isFinite(Number(libras)) || Number(libras) <= 0) {
+        errores.libras = 'Ingresa una cantidad de libras mayor que cero.';
+      }
     }
 
-    if (
-      tipo === 'Raleo' &&
-      (Number(pesoInicial) <= 0 || Number(pesoFinal) <= 0)
-    ) {
-      alert('Ingresa el peso inicial y el peso final en gramos.');
-
-      return;
+    if (tipo === 'Raleo') {
+      if (!pesoInicial.trim() || Number(pesoInicial) <= 0) {
+        errores.pesoInicial = 'Ingresa el peso inicial en gramos.';
+      }
+      if (!pesoFinal.trim() || Number(pesoFinal) <= 0) {
+        errores.pesoFinal = 'Ingresa el peso final en gramos.';
+      }
     }
 
-    if (tipo === 'Venta local' && Number(pesoVentaLocal) <= 0) {
-      alert('Ingresa el peso del camarón en gramos.');
-
-      return;
+    if (tipo === 'Venta local' && (!pesoVentaLocal.trim() || Number(pesoVentaLocal) <= 0)) {
+      errores.pesoVentaLocal = 'Ingresa el peso del camarón en gramos.';
     }
 
-    if (tipo !== 'Pesca' && !fecha) {
-      alert('Selecciona una fecha.');
-
-      return;
+    if (tipo === 'Pesca') {
+      if (noches.length === 0 && !fecha) {
+        errores.fecha = 'Selecciona la fecha programada.';
+      }
+      noches.forEach((noche) => {
+        if (!noche.fecha) {
+          errores[`noche-${noche.id}-fecha`] = 'Selecciona la fecha de esta noche.';
+        }
+        if (!Number.isFinite(noche.libras) || noche.libras <= 0) {
+          errores[`noche-${noche.id}-libras`] = 'Ingresa las libras obtenidas (mayor que cero).';
+        }
+      });
     }
 
-    if (tipo !== 'Pesca' && Number(libras) <= 0) {
-      alert('Ingresa una cantidad válida de libras.');
+    setErroresFormulario(errores);
+    if (Object.keys(errores).length > 0 || cicloActual === null) return;
 
-      return;
-    }
+    // Primero confirmar; todavía no se escribe ningún registro.
+    setMostrarConfirmacionGuardado(true);
+  }
+
+  function confirmarGuardarRegistro() {
+    if (!mostrarConfirmacionGuardado || cicloActual === null || !piscina) return;
 
     /* =====================================================
        PESCA
@@ -611,24 +688,10 @@ export default function Pescas() {
       */
 
       if (noches.length === 0) {
-        if (!fecha) {
-          alert('Selecciona la fecha programada de la pesca.');
-
-          return;
-        }
-
         fechaRegistro = fecha;
 
         estadoRegistro = 'Programada';
       } else {
-        const nocheSinFecha = noches.some((noche) => !noche.fecha);
-
-        if (nocheSinFecha) {
-          alert('Ingresa la fecha de todas las noches de pesca.');
-
-          return;
-        }
-
         fechaRegistro = noches[0].fecha;
 
         estadoRegistro = pescaFinalizada ? 'Finalizado' : 'En proceso';
@@ -658,6 +721,8 @@ export default function Pescas() {
 
       pesoFinal: tipo === 'Raleo' ? Number(pesoFinal) : undefined,
 
+      destinoProduccion: tipo === 'Raleo' ? destinoProduccion.trim() : undefined,
+
       pesoVentaLocal:
         tipo === 'Venta local' ? Number(pesoVentaLocal) : undefined,
 
@@ -669,6 +734,10 @@ export default function Pescas() {
       observacion,
 
       noches: tipo === 'Pesca' ? noches : undefined,
+
+      // Al editar, conservar la marca de liquidación del ciclo histórico.
+      cosechaCerrada: registroEditando?.cosechaCerrada,
+      fechaCierreCosecha: registroEditando?.fechaCierreCosecha,
     };
 
     if (registroEditando) {
@@ -689,6 +758,7 @@ export default function Pescas() {
   ======================================================= */
 
   function editarRegistro(registro: RegistroPesca) {
+    setErroresFormulario({});
     setContextoMovimiento(null);
     setRegistroEditando(registro);
 
@@ -703,6 +773,7 @@ export default function Pescas() {
     setPesoInicial(registro.pesoInicial ? String(registro.pesoInicial) : '');
 
     setPesoFinal(registro.pesoFinal ? String(registro.pesoFinal) : '');
+    setDestinoProduccion(registro.destinoProduccion ?? registro.empacadora ?? '');
 
     setPesoVentaLocal(
       registro.pesoVentaLocal ? String(registro.pesoVentaLocal) : ''
@@ -764,6 +835,24 @@ export default function Pescas() {
 
   function cerrarDetalleCiclo() {
     setDetalleCiclo(null);
+  }
+
+  function solicitarEliminarMovimiento(registro: RegistroPesca) {
+    // Un movimiento que liquidó la cosecha no puede borrarse porque el
+    // cierre del ciclo está guardado por separado en Piscinas.
+    if (registro.cosechaCerrada) return;
+    setMovimientoPendienteEliminar(registro);
+  }
+
+  function confirmarEliminarMovimiento() {
+    if (!movimientoPendienteEliminar) return;
+    const idEliminar = movimientoPendienteEliminar.id;
+
+    // Conserva todos los demás movimientos, la siembra y el ciclo.
+    setRegistros((actuales) =>
+      actuales.filter((registro) => registro.id !== idEliminar)
+    );
+    setMovimientoPendienteEliminar(null);
   }
 
   function agregarMovimientoAlCiclo() {
@@ -1042,47 +1131,76 @@ export default function Pescas() {
       =============================================== */}
 
       <section className="pools-panel">
-        <div className="pools-toolbar">
-          <div className="search-box">
-            <Search size={18} />
+        <div
+          className="pools-toolbar"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'stretch',
+            gap: '10px',
+          }}
+        >
+          {/* Primera fila: búsqueda compacta y filtros principales */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(180px, 1.6fr) repeat(3, minmax(125px, 1fr))',
+              gap: '10px',
+              alignItems: 'center',
+              width: '100%',
+            }}
+          >
+            <div className="search-box" style={{ width: '100%', minWidth: 0 }}>
+              <Search size={18} />
+              <input
+                type="text"
+                placeholder="Buscar piscina o ciclo..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+              />
+            </div>
 
-            <input
-              type="text"
-              placeholder="Buscar por piscina o ciclo..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-            />
+            <select
+              aria-label="Filtrar por piscina"
+              style={{ width: '100%', minWidth: 0 }}
+              value={filtroPiscina}
+              onChange={(e) => {
+                setFiltroPiscina(e.target.value);
+                setFiltroCiclo('Todos');
+              }}
+            >
+              <option value="Todas">Todas las piscinas</option>
+              {nombresPiscinasFiltro.map((nombre) => (
+                <option key={nombre} value={nombre}>{nombre}</option>
+              ))}
+            </select>
+
+            <select
+              aria-label="Filtrar por ciclo"
+              style={{ width: '100%', minWidth: 0 }}
+              value={filtroCiclo}
+              onChange={(e) => setFiltroCiclo(e.target.value)}
+              disabled={filtroPiscina === 'Todas'}
+              title={filtroPiscina === 'Todas' ? 'Primero selecciona una piscina' : 'Selecciona el ciclo'}
+            >
+              <option value="Todos">Todos los ciclos</option>
+              {ciclosDisponiblesFiltro.map((numero) => (
+                <option key={numero} value={String(numero)}>Ciclo {numero}</option>
+              ))}
+            </select>
+
+            <select
+              aria-label="Filtrar por tipo"
+              style={{ width: '100%', minWidth: 0 }}
+              value={filtroTipo}
+              onChange={(e) => setFiltroTipo(e.target.value)}
+            >
+              <option value="Todos">Todos los tipos</option>
+              <option value="Raleo">Raleo</option>
+              <option value="Pesca">Pesca</option>
+              <option value="Venta local">Venta local</option>
+            </select>
           </div>
-
-          {/* FILTRO POR PISCINA */}
-
-          <select
-            value={filtroPiscina}
-            onChange={(e) => setFiltroPiscina(e.target.value)}
-          >
-            <option value="Todas">Todas las piscinas</option>
-
-            {piscinasDisponibles.map((piscina) => (
-              <option key={piscina.nombre} value={piscina.nombre}>
-                {piscina.nombre}
-              </option>
-            ))}
-          </select>
-
-          {/* FILTRO POR TIPO */}
-
-          <select
-            value={filtroTipo}
-            onChange={(e) => setFiltroTipo(e.target.value)}
-          >
-            <option value="Todos">Todos los tipos</option>
-
-            <option value="Raleo">Raleo</option>
-
-            <option value="Pesca">Pesca</option>
-
-            <option value="Venta local">Venta local</option>
-          </select>
 
           {/* FILTRO POR FECHA */}
 
@@ -1092,6 +1210,8 @@ export default function Pescas() {
               alignItems: 'center',
               gap: '8px',
               flexWrap: 'wrap',
+              justifyContent: 'flex-start',
+              width: '100%',
             }}
           >
             <label
@@ -1165,9 +1285,9 @@ export default function Pescas() {
 
                 <th>Tipo</th>
 
-                <th>Detalle</th>
-
                 <th>Libras</th>
+
+                <th>Detalle</th>
 
                 <th>Estado</th>
 
@@ -1181,7 +1301,10 @@ export default function Pescas() {
                   new Set(grupo.registros.map((registro) => registro.tipo))
                 );
 
-                const ultimoRegistro = grupo.registros.at(-1);
+                const ultimaObservacion = [...grupo.registros]
+                  .reverse()
+                  .find((registro) => registro.observacion?.trim())
+                  ?.observacion?.trim();
 
                 return (
                   <tr key={`${grupo.piscina}-${grupo.cicloActual}`}>
@@ -1221,6 +1344,10 @@ export default function Pescas() {
                     </td>
 
                     <td>
+                      <strong>{grupo.totalLibras.toLocaleString()} lb</strong>
+                    </td>
+
+                    <td>
                       <div
                         style={{
                           display: 'flex',
@@ -1232,29 +1359,22 @@ export default function Pescas() {
                           {grupo.registros.length} movimiento(s) del ciclo
                         </strong>
                         <small style={{ color: '#7b8d91' }}>
-                          👁 Ver detalle para revisar Raleo 1, Raleo 2, noches de
-                          pesca y ventas locales
+                          {ultimaObservacion
+                            ? `📝 ${ultimaObservacion}`
+                            : 'Sin observaciones'}
                         </small>
                       </div>
                     </td>
 
                     <td>
-                      <strong>{grupo.totalLibras.toLocaleString()} lb</strong>
-                    </td>
-
-                    <td>
                       <span
                         className={`harvest-status status-${(
-                          grupo.cicloCerrado
-                            ? 'Finalizado'
-                            : ultimoRegistro?.estado || 'En proceso'
+                          grupo.cicloCerrado ? 'Finalizado' : 'En proceso'
                         )
                           .toLowerCase()
                           .replace(' ', '-')}`}
                       >
-                        {grupo.cicloCerrado
-                          ? 'Finalizado'
-                          : ultimoRegistro?.estado || 'En proceso'}
+                        {grupo.cicloCerrado ? 'Finalizado' : 'En producción'}
                       </span>
 
                       {grupo.cicloCerrado && (
@@ -1354,6 +1474,13 @@ export default function Pescas() {
           : null;
 
         const siembraDetalle = cicloDetalle?.siembra ?? null;
+
+        // Mostrar Agregar movimiento solo cuando este mismo ciclo tiene siembra activa.
+        const puedeAgregarMovimiento = piscinasDisponibles.some(
+          (item) =>
+            item.nombre === detalleCiclo.piscina &&
+            item.cicloActual === detalleCiclo.cicloActual
+        );
 
         const movimientos = movimientosDelCiclo(
           detalleCiclo.piscina,
@@ -1630,49 +1757,63 @@ export default function Pescas() {
                               <Pencil size={15} />
                             </button>
 
-                            {registro.tipo !== 'Pesca' && (
-                              <strong
-                                style={{
-                                  padding: '7px 11px',
-                                  borderRadius: '10px',
-                                  background: '#eef9f7',
-                                  color: '#0f8f83',
-                                  fontSize: '14px',
-                                }}
-                              >
-                                {registro.libras.toLocaleString()} lb
-                              </strong>
-                            )}
+                            <button
+                              type="button"
+                              className="icon-button"
+                              onClick={() => solicitarEliminarMovimiento(registro)}
+                              disabled={Boolean(registro.cosechaCerrada)}
+                              title={registro.cosechaCerrada
+                                ? 'Este movimiento liquidó el ciclo y no puede eliminarse'
+                                : 'Eliminar este movimiento'}
+                              aria-label={registro.cosechaCerrada
+                                ? 'No se puede eliminar la pesca que liquidó el ciclo'
+                                : `Eliminar ${registro.tipo} del ${fechaBonita(registro.fecha)}`}
+                              style={{
+                                color: '#c43d3d',
+                                background: '#fff0f0',
+                                opacity: registro.cosechaCerrada ? 0.45 : 1,
+                                cursor: registro.cosechaCerrada ? 'not-allowed' : 'pointer',
+                              }}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+
+
                           </div>
                         </div>
 
                         {registro.tipo === 'Raleo' && (
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns:
-                                'repeat(auto-fit, minmax(150px, 1fr))',
-                              gap: '10px',
-                              marginTop: '13px',
-                            }}
-                          >
-                            <MovimientoDato
-                              titulo="Peso inicial"
-                              valor={
-                                registro.pesoInicial != null
-                                  ? `${registro.pesoInicial} g`
-                                  : 'No registrado'
-                              }
-                            />
-
-                            <MovimientoDato
-                              titulo="Peso final"
-                              valor={
-                                registro.pesoFinal != null
-                                  ? `${registro.pesoFinal} g`
-                                  : 'No registrado'
-                              }
-                            />
+                          <div style={{ marginTop: '13px' }}>
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(130px, 1fr) minmax(100px, auto)',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '11px 13px',
+                                borderRadius: '12px',
+                                background: '#f8fafb',
+                                border: '1px solid #edf1f2',
+                              }}
+                            >
+                              <div>
+                                <strong style={{ color: '#35545a', fontSize: '13px' }}>
+                                  ⚖️ Pesos del camarón
+                                </strong>
+                                <div style={{ marginTop: '5px', color: '#61767a', fontSize: '11px' }}>
+                                  ⚖️ Inicial: {registro.pesoInicial != null ? `${registro.pesoInicial} g` : '—'}
+                                  {' '}→ Final: {registro.pesoFinal != null ? `${registro.pesoFinal} g` : '—'}
+                                </div>
+                                {(registro.destinoProduccion ?? registro.empacadora)?.trim() && (
+                                  <div style={{ marginTop: '5px', color: '#61767a', fontSize: '11px' }}>
+                                    📦 Destino: {registro.destinoProduccion ?? registro.empacadora}
+                                  </div>
+                                )}
+                              </div>
+                              <strong style={{ color: '#173f47', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {registro.libras.toLocaleString()} lb
+                              </strong>
+                            </div>
                           </div>
                         )}
 
@@ -1697,7 +1838,7 @@ export default function Pescas() {
 
                                   return a.numero - b.numero;
                                 })
-                                .map((noche, indice) => (
+                                .map((noche) => (
                                   <div
                                     key={noche.id}
                                     style={{
@@ -1745,12 +1886,19 @@ export default function Pescas() {
                                             : '—'}
                                         </div>
                                       )}
+                                      {(noche.destinoProduccion ?? noche.empacadora)?.trim() && (
+                                        <div style={{ marginTop: '5px', color: '#61767a', fontSize: '11px' }}>
+                                          📦 Destino: {noche.destinoProduccion ?? noche.empacadora}
+                                        </div>
+                                      )}
                                     </div>
 
                                     <strong
                                       style={{
                                         color: '#173f47',
                                         alignSelf: 'center',
+                                        textAlign: 'right',
+                                        whiteSpace: 'nowrap',
                                       }}
                                     >
                                       {noche.libras.toLocaleString()} lb
@@ -1793,38 +1941,39 @@ export default function Pescas() {
                         )}
 
                         {registro.tipo === 'Venta local' && (
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns:
-                                'repeat(auto-fit, minmax(150px, 1fr))',
-                              gap: '10px',
-                              marginTop: '13px',
-                            }}
-                          >
-                            <MovimientoDato
-                              titulo="Peso del camarón"
-                              valor={
-                                registro.pesoVentaLocal != null
-                                  ? `${registro.pesoVentaLocal} g`
-                                  : 'No registrado'
-                              }
-                            />
-
-                            <MovimientoDato
-                              titulo="Comprador"
-                              valor={registro.comprador || 'No registrado'}
-                            />
-
-                            <MovimientoDato
-                              titulo="Precio por libra"
-                              valor={
-                                registro.precioLibra != null &&
-                                registro.precioLibra > 0
-                                  ? `$${registro.precioLibra.toFixed(2)}`
-                                  : 'No registrado'
-                              }
-                            />
+                          <div style={{ marginTop: '13px' }}>
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(130px, 1fr) minmax(100px, auto)',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '11px 13px',
+                                borderRadius: '12px',
+                                background: '#f8fafb',
+                                border: '1px solid #edf1f2',
+                              }}
+                            >
+                              <div>
+                                <strong style={{ color: '#35545a', fontSize: '13px' }}>
+                                  🏪 Detalle de venta
+                                </strong>
+                                <div style={{ marginTop: '5px', color: '#61767a', fontSize: '11px' }}>
+                                  ⚖️ Peso: {registro.pesoVentaLocal != null ? `${registro.pesoVentaLocal} g` : '—'}
+                                  {registro.precioLibra != null && registro.precioLibra > 0
+                                    ? ` · Precio: $${registro.precioLibra.toFixed(2)}/lb`
+                                    : ''}
+                                </div>
+                                {registro.comprador && (
+                                  <div style={{ marginTop: '4px', color: '#61767a', fontSize: '11px' }}>
+                                    👤 Comprador: {registro.comprador}
+                                  </div>
+                                )}
+                              </div>
+                              <strong style={{ color: '#173f47', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {registro.libras.toLocaleString()} lb
+                              </strong>
+                            </div>
                           </div>
                         )}
 
@@ -1849,33 +1998,27 @@ export default function Pescas() {
                 )}
               </div>
 
-              <div
-                className="modal-actions"
-                style={{
-                  marginTop: '22px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: '10px',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={cerrarDetalleCiclo}
+              {puedeAgregarMovimiento && (
+                <div
+                  className="modal-actions"
+                  style={{
+                    marginTop: '22px',
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: '10px',
+                    flexWrap: 'wrap',
+                  }}
                 >
-                  Cerrar detalle
-                </button>
-
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={agregarMovimientoAlCiclo}
-                >
-                  <Plus size={17} />
-                  Agregar movimiento
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={agregarMovimientoAlCiclo}
+                  >
+                    <Plus size={17} />
+                    Agregar movimiento
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         );
@@ -1885,7 +2028,7 @@ export default function Pescas() {
           MODAL
       =============================================== */}
 
-      {modalAbierto && (
+      {modalAbierto && !mostrarConfirmacionGuardado && (
         <div className="modal-backdrop" onClick={cerrarModal}>
           <div
             className="pool-modal harvest-modal"
@@ -1921,7 +2064,7 @@ export default function Pescas() {
               <button
                 type="button"
                 className={tipo === 'Raleo' ? 'active' : ''}
-                onClick={() => setTipo('Raleo')}
+                onClick={() => { setTipo('Raleo'); setErroresFormulario({}); }}
               >
                 <Waves size={18} />
                 Raleo
@@ -1930,7 +2073,7 @@ export default function Pescas() {
               <button
                 type="button"
                 className={tipo === 'Pesca' ? 'active' : ''}
-                onClick={() => setTipo('Pesca')}
+                onClick={() => { setTipo('Pesca'); setErroresFormulario({}); }}
               >
                 <Moon size={18} />
                 Pesca
@@ -1939,7 +2082,7 @@ export default function Pescas() {
               <button
                 type="button"
                 className={tipo === 'Venta local' ? 'active' : ''}
-                onClick={() => setTipo('Venta local')}
+                onClick={() => { setTipo('Venta local'); setErroresFormulario({}); }}
               >
                 <Store size={18} />
                 Venta local
@@ -1955,8 +2098,10 @@ export default function Pescas() {
                 Piscina
                 <select
                   value={piscina}
-                  onChange={(e) => setPiscina(e.target.value)}
+                  onChange={(e) => { setPiscina(e.target.value); limpiarError('piscina'); }}
                   disabled={Boolean(contextoMovimiento || registroEditando)}
+                  aria-invalid={Boolean(erroresFormulario.piscina)}
+                  style={erroresFormulario.piscina ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                 >
                   <option value="">Selecciona una piscina</option>
 
@@ -1968,11 +2113,11 @@ export default function Pescas() {
                       key={piscinaDisponible.nombre}
                       value={piscinaDisponible.nombre}
                     >
-                      {piscinaDisponible.nombre} — Ciclo{' '}
-                      {piscinaDisponible.cicloActual}
+                      {piscinaDisponible.nombre}
                     </option>
                   ))}
                 </select>
+                <ErrorCampo mensaje={erroresFormulario.piscina} />
               </label>
 
               <label>
@@ -1986,30 +2131,6 @@ export default function Pescas() {
               </label>
             </div>
 
-            {/* MENSAJE DEL CICLO */}
-
-            {piscina && cicloActual !== null && (
-              <div
-                style={{
-                  marginTop: '10px',
-                  marginBottom: '16px',
-                  padding: '11px 14px',
-                  background: '#eef8f6',
-                  borderRadius: '10px',
-                  color: '#376b64',
-                  fontSize: '13px',
-                }}
-              >
-                {contextoMovimiento
-                  ? 'Este movimiento se agregará al historial de '
-                  : 'Este registro iniciará el historial de '}{' '}
-                <strong>
-                  {piscina} — Ciclo {cicloActual}
-                </strong>
-                .
-              </div>
-            )}
-
             {/* =========================================
                 RALEO / VENTA LOCAL
             ========================================= */}
@@ -2021,8 +2142,11 @@ export default function Pescas() {
                   <input
                     type="date"
                     value={fecha}
-                    onChange={(e) => setFecha(e.target.value)}
+                    onChange={(e) => { setFecha(e.target.value); limpiarError('fecha'); }}
+                    aria-invalid={Boolean(erroresFormulario.fecha)}
+                    style={erroresFormulario.fecha ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                   />
+                  <ErrorCampo mensaje={erroresFormulario.fecha} />
                 </label>
 
                 <label>
@@ -2031,9 +2155,12 @@ export default function Pescas() {
                     type="number"
                     min="0"
                     value={libras}
-                    onChange={(e) => setLibras(e.target.value)}
+                    onChange={(e) => { setLibras(e.target.value); limpiarError('libras'); }}
                     placeholder="Ej. 8500"
+                    aria-invalid={Boolean(erroresFormulario.libras)}
+                    style={erroresFormulario.libras ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                   />
+                  <ErrorCampo mensaje={erroresFormulario.libras} />
                 </label>
               </div>
             )}
@@ -2068,9 +2195,12 @@ export default function Pescas() {
                       min="0"
                       step="0.01"
                       value={pesoInicial}
-                      onChange={(e) => setPesoInicial(e.target.value)}
+                      onChange={(e) => { setPesoInicial(e.target.value); limpiarError('pesoInicial'); }}
+                      aria-invalid={Boolean(erroresFormulario.pesoInicial)}
+                      style={erroresFormulario.pesoInicial ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                       placeholder="Ej. 18.50"
                     />
+                    <ErrorCampo mensaje={erroresFormulario.pesoInicial} />
                   </label>
 
                   <label>
@@ -2080,8 +2210,23 @@ export default function Pescas() {
                       min="0"
                       step="0.01"
                       value={pesoFinal}
-                      onChange={(e) => setPesoFinal(e.target.value)}
+                      onChange={(e) => { setPesoFinal(e.target.value); limpiarError('pesoFinal'); }}
+                      aria-invalid={Boolean(erroresFormulario.pesoFinal)}
+                      style={erroresFormulario.pesoFinal ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                       placeholder="Ej. 24.70"
+                    />
+                    <ErrorCampo mensaje={erroresFormulario.pesoFinal} />
+                  </label>
+                </div>
+                <div className="form-grid" style={{ marginTop: '12px' }}>
+                  <label style={{ gridColumn: '1 / -1' }}>
+                    Destino
+                    <input
+                      type="text"
+                      value={destinoProduccion}
+                      onChange={(e) => setDestinoProduccion(e.target.value)}
+                      placeholder="Ej. Empacadora ABC"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
                     />
                   </label>
                 </div>
@@ -2098,11 +2243,6 @@ export default function Pescas() {
                   <div>
                     <h3>Noches de pesca</h3>
 
-                    <p>
-                      Puedes programar la pesca o agregar tantas noches como sea
-                      necesario. Cada noche puede tener su propio peso inicial y
-                      final (opcional).
-                    </p>
                   </div>
 
                   <button
@@ -2123,8 +2263,11 @@ export default function Pescas() {
                       <input
                         type="date"
                         value={fecha}
-                        onChange={(e) => setFecha(e.target.value)}
+                        onChange={(e) => { setFecha(e.target.value); limpiarError('fecha'); }}
+                        aria-invalid={Boolean(erroresFormulario.fecha)}
+                        style={erroresFormulario.fecha ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                       />
+                      <ErrorCampo mensaje={erroresFormulario.fecha} />
                     </label>
                   </div>
                 )}
@@ -2159,7 +2302,10 @@ export default function Pescas() {
                           onChange={(e) =>
                             actualizarNoche(noche.id, 'fecha', e.target.value)
                           }
+                          aria-invalid={Boolean(erroresFormulario[`noche-${noche.id}-fecha`])}
+                          style={erroresFormulario[`noche-${noche.id}-fecha`] ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                         />
+                        <ErrorCampo mensaje={erroresFormulario[`noche-${noche.id}-fecha`]} />
                       </label>
 
                       <label>
@@ -2172,7 +2318,10 @@ export default function Pescas() {
                             actualizarNoche(noche.id, 'libras', e.target.value)
                           }
                           placeholder="Ej. 35000"
+                          aria-invalid={Boolean(erroresFormulario[`noche-${noche.id}-libras`])}
+                          style={erroresFormulario[`noche-${noche.id}-libras`] ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                         />
+                        <ErrorCampo mensaje={erroresFormulario[`noche-${noche.id}-libras`]} />
                       </label>
 
                       <label>
@@ -2208,6 +2357,16 @@ export default function Pescas() {
                             )
                           }
                           placeholder="Ej. 24.70"
+                        />
+                      </label>
+                      <label style={{ gridColumn: '1 / -1' }}>
+                        Destino
+                        <input
+                          type="text"
+                          value={noche.destinoProduccion ?? noche.empacadora ?? ''}
+                          onChange={(e) => actualizarNoche(noche.id, 'destinoProduccion', e.target.value)}
+                          placeholder="Ej. Empacadora ABC"
+                          style={{ width: '100%', boxSizing: 'border-box' }}
                         />
                       </label>
                     </div>
@@ -2283,9 +2442,12 @@ export default function Pescas() {
                     min="0"
                     step="0.01"
                     value={pesoVentaLocal}
-                    onChange={(e) => setPesoVentaLocal(e.target.value)}
+                    onChange={(e) => { setPesoVentaLocal(e.target.value); limpiarError('pesoVentaLocal'); }}
                     placeholder="Ej. 22.50"
+                    aria-invalid={Boolean(erroresFormulario.pesoVentaLocal)}
+                    style={erroresFormulario.pesoVentaLocal ? { borderColor: '#d94848', backgroundColor: '#fffafa' } : undefined}
                   />
+                  <ErrorCampo mensaje={erroresFormulario.pesoVentaLocal} />
                 </label>
 
                 <label>
@@ -2370,7 +2532,167 @@ export default function Pescas() {
           </div>
         </div>
       )}
+
+      {/* Confirmación de guardado integrada: aplica a Raleo, Pesca y Venta local. */}
+      {mostrarConfirmacionGuardado && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setMostrarConfirmacionGuardado(false)}
+        >
+          <div
+            className="pool-modal harvest-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="titulo-confirmar-guardado"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '450px', width: 'min(92vw, 450px)' }}
+          >
+            <div style={{ textAlign: 'center', padding: '12px 8px' }}>
+              <div
+                style={{
+                  width: '60px', height: '60px', margin: '0 auto 14px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: '#eaf8f5', borderRadius: '17px', fontSize: '28px',
+                }}
+              >
+                {tipo === 'Raleo' ? '🌊' : tipo === 'Pesca' ? '🎣' : '🏪'}
+              </div>
+              <h2
+                id="titulo-confirmar-guardado"
+                style={{ color: '#173f47', fontSize: '21px', marginBottom: '10px' }}
+              >
+                {registroEditando
+                  ? `¿Deseas guardar los cambios de ${tipo === 'Venta local' ? 'esta venta local' : tipo === 'Pesca' ? 'esta pesca' : 'este raleo'}?`
+                  : `¿Deseas guardar ${tipo === 'Venta local' ? 'esta venta local' : tipo === 'Pesca' ? 'esta pesca' : 'este raleo'}?`}
+              </h2>
+              <p style={{ color: '#52696c', fontSize: '14px', lineHeight: 1.7 }}>
+                <strong>{piscina}</strong> — Ciclo <strong>{cicloActual}</strong>
+                <br />
+                <strong>{tipo}</strong>
+                {tipo === 'Pesca' ? (
+                  <>
+                    <br />
+                    {noches.length === 0 ? 'Pesca programada' : `${noches.length} noche(s) registrada(s)`}
+                    {' · '}
+                    <strong>{noches.reduce((suma, noche) => suma + Number(noche.libras || 0), 0).toLocaleString()} lb</strong>
+                  </>
+                ) : (
+                  <>
+                    <br />
+                    <strong>{Number(libras).toLocaleString()} lb</strong>
+                  </>
+                )}
+              </p>
+              <p style={{ color: '#647c7a', fontSize: '12px', lineHeight: 1.55 }}>
+                Confirma para {registroEditando ? 'actualizar' : 'registrar'} este movimiento en el historial productivo.
+              </p>
+            </div>
+            <div
+              className="modal-actions"
+              style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}
+            >
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setMostrarConfirmacionGuardado(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={confirmarGuardarRegistro}
+              >
+                {registroEditando ? 'Confirmar cambios' : 'Confirmar guardado'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmar eliminación individual sin tocar el cierre del ciclo. */}
+      {movimientoPendienteEliminar && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setMovimientoPendienteEliminar(null)}
+        >
+          <div
+            className="pool-modal harvest-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="titulo-eliminar-movimiento"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '470px', width: 'min(92vw, 470px)' }}
+          >
+            <div style={{ textAlign: 'center', padding: '12px 8px' }}>
+              <div style={{
+                width: '60px', height: '60px', margin: '0 auto 14px',
+                display: 'flex', justifyContent: 'center', alignItems: 'center',
+                background: '#fff1f1', color: '#bf3939', borderRadius: '17px',
+              }}>
+                <Trash2 size={27} />
+              </div>
+              <h2
+                id="titulo-eliminar-movimiento"
+                style={{ color: '#613d3d', fontSize: '21px', marginBottom: '9px' }}
+              >
+                ¿Eliminar este movimiento?
+              </h2>
+              <p style={{ color: '#52696c', fontSize: '14px', lineHeight: 1.65 }}>
+                <strong>{movimientoPendienteEliminar.piscina}</strong> — Ciclo{' '}
+                <strong>{movimientoPendienteEliminar.cicloActual}</strong>
+                <br />
+                <strong>{movimientoPendienteEliminar.tipo}</strong> ·{' '}
+                {fechaBonita(movimientoPendienteEliminar.fecha)}
+                <br />
+                <strong>{movimientoPendienteEliminar.libras.toLocaleString()} lb</strong>
+              </p>
+              <p style={{ color: '#8a5858', fontSize: '13px', lineHeight: 1.55 }}>
+                Se borrará únicamente este movimiento
+                {movimientoPendienteEliminar.tipo === 'Pesca'
+                  ? ' y todas sus noches registradas'
+                  : ''}. Esta acción no se puede deshacer.
+              </p>
+              <p style={{ color: '#647c7a', fontSize: '12px', lineHeight: 1.55 }}>
+                Los otros movimientos, la siembra y el estado del ciclo se conservarán.
+              </p>
+            </div>
+            <div
+              className="modal-actions"
+              style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}
+            >
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setMovimientoPendienteEliminar(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminarMovimiento}
+                style={{
+                  border: 'none', borderRadius: '11px', padding: '11px 18px',
+                  background: '#c43d3d', color: '#fff', cursor: 'pointer',
+                  fontWeight: 700,
+                }}
+              >
+                Eliminar movimiento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function ErrorCampo({ mensaje }: { mensaje?: string }) {
+  if (!mensaje) return null;
+  return (
+    <span role="alert" style={{ display: 'block', color: '#c63737', fontSize: '12px', marginTop: '5px', fontWeight: 600 }}>
+      {mensaje}
+    </span>
   );
 }
 
